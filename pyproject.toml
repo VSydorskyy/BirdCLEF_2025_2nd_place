@@ -1,0 +1,43 @@
+[tool.poetry]
+name = "code_base"
+version = "0.1.0"
+description = ""
+authors = ["None"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+torch = "^2.2.2"
+torchvision = "^0.17.2"
+torchaudio = "^2.2.2"
+albumentations = "^1.4.3"
+ipdb = "^0.13.13"
+jupyterlab = "^4.1.6"
+kaggle = "^1.6.12"
+matplotlib = "^3.8.4"
+pandas = "^2.2.2"
+pre-commit = "^3.7.0"
+scikit-learn = "^1.4.2"
+audiomentations = "^0.35.0"
+h5py = "^3.11.0"
+librosa = "^0.10.1"
+nnaudio = "^0.3.3"
+noisereduce = "^3.0.2"
+numpy = "^1.26.4"
+prompt-toolkit = "^3.0.43"
+timm = "^0.9.16"
+ttach = "^0.0.3"
+seaborn = "^0.13.2"
+onnx = "1.15.0"
+onnxruntime = "^1.17.3"
+onnxsim = "^0.4.36"
+lightning = "^2.2.2"
+pytorch-toolbelt = "^0.6.3"
+tensorboard = "^2.16.2"
+onnxconverter-common = "^1.14.0"
+openvino = "^2024.0.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

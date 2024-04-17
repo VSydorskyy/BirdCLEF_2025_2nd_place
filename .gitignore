@@ -1,0 +1,10 @@
+*__pycache__
+*.ipynb_checkpoints
+*.egg-info
+.vscode
+logdirs
+.venv
+.api_temp
+excepted_birds.json
+*xeno-canto-py*
+notebooks/old_notebooks

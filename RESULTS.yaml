@@ -1,0 +1,54 @@
+-
+  models:
+    - convnext_small_fb_in22k_ft_in1k_384_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch50_SpecAugV1_FocalLoss_5Folds
+  description: CV from 3 SWA
+  results:
+    Folds Roc Auc: [0.9852750188716456, 0.9795014253145842, 0.9851665739604447, 0.9781534326010027, 0.976868174771824]
+    Mean Roc Auc: 0.9809929251039003
+    OOF Roc Auc: 0.9790126970784088
+    Public ONNX Full Train: -1
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch50_SpecAugV1_FocalLoss_Full
+  # description: CV from 3 SWA
+  results:
+    Folds Roc Auc: [0.9814793649662923, 0.9803077731733479, 0.9827359986379093, 0.9759181871227726, 0.976522829114435]
+    Mean Roc Auc: 0.9793928306029513
+    OOF Roc Auc: 0.9788724832429009
+    Public ONNX Full Train: 0.62
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredData_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full
+  description: CV from 3 SWA
+  results:
+    Folds Roc Auc: [0.9821510023950407, 0.9833037365185753, 0.98475676383974, 0.982785416789157, 0.9830781732008707]
+    Mean Roc Auc: 0.9832150185486765
+    OOF Roc Auc: 0.9820496867351368
+    Public ONNX Full Train: 0.63
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
+  # description: CV from 3 SWA
+  results:
+    Folds Roc Auc: 
+    Mean Roc Auc: 
+    OOF Roc Auc: 
+    Public ONNX Full Train: 0.63
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch15_FocalLoss_Full_NoDuplsV1
+  # description: CV from 3 SWA
+  results:
+    Folds Roc Auc: 
+    Mean Roc Auc: 
+    OOF Roc Auc: 
+    Public ONNX Full Train: 0.63
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch50_FocalLoss_Full_NoDuplsV1
+  # description: CV from 3 SWA
+  results:
+    Folds Roc Auc: 
+    Mean Roc Auc: 
+    OOF Roc Auc: 
+    Public ONNX Full Train: 0.63
