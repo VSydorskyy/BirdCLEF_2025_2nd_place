@@ -1,17 +1,14 @@
 import json
-from typing import Optional, Tuple
 from itertools import chain
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
 from lightning.pytorch.callbacks import Callback
 from pytorch_toolbelt.utils import all_gather, broadcast_from_master, is_main_process
 
-from ..utils import (
-    groupby_np_array,
-    score_numpy,
-    stack_and_max_by_samples,
-)
+from ..utils import groupby_np_array, score_numpy, stack_and_max_by_samples
+
 
 class ROC_AUC_Score(Callback):
     def __init__(
@@ -41,10 +38,7 @@ class ROC_AUC_Score(Callback):
         self.use_timewise_avarage = use_timewise_avarage
         self.verbose = verbose
 
-        if (
-            label_str2int_mapping_path is not None
-            and scored_bird_path is not None
-        ):
+        if label_str2int_mapping_path is not None and scored_bird_path is not None:
             print("PaddedCMAPScore will be computed on subset of classes")
             label_str2int = json.load(open(label_str2int_mapping_path))
             scored_bird = json.load(open(scored_bird_path))
@@ -73,7 +67,7 @@ class ROC_AUC_Score(Callback):
             }
             for loader_name in loader_names
         }
-    
+
     def initialize_accums(self, loader_name):
         self.accums[loader_name] = {
             "preds": [],
@@ -81,7 +75,7 @@ class ROC_AUC_Score(Callback):
             "targets": [],
             "sample_ids": [],
         }
-    
+
     def update_accums(self, outputs, loader_name):
         pred = outputs["output_" + self.pred_key].detach()
         if self.use_sigmoid:
@@ -94,9 +88,7 @@ class ROC_AUC_Score(Callback):
         self.accums[loader_name]["targets"].append(outputs["input_" + self.target_key].detach().cpu().numpy())
 
         if self.aggr_key is not None:
-            self.accums[loader_name]["sample_ids"].append(
-                outputs["input_" + self.aggr_key].detach().cpu().numpy()
-            )
+            self.accums[loader_name]["sample_ids"].append(outputs["input_" + self.aggr_key].detach().cpu().numpy())
 
         # if self.pred_long_key is not None:
         #     output_long = outputs["output_" + self.pred_long_key]
@@ -123,7 +115,7 @@ class ROC_AUC_Score(Callback):
             if self.scored_bird_ids is not None:
                 targets = targets[:, self.scored_bird_ids]
                 preds = preds[:, self.scored_bird_ids]
-            
+
             # if self.pred_long_key is not None:
             #     preds_long = np.concatenate(list(chain(*preds_long)), axis=0)
             #     if self.scored_bird_ids is not None:
@@ -148,7 +140,9 @@ class ROC_AUC_Score(Callback):
                 #         apply_f=stack_and_max_by_samples,
                 #     )
             # In order to handle sanity check
-            if targets.shape[0] < 100:
+            if (targets.shape[0] < 100 and self.aggr_key is not None) or (
+                targets.shape[0] < 300 and self.aggr_key is None
+            ):
                 roc_auc = -1
             else:
                 roc_auc = score_numpy(y_true=targets, y_pred=preds)

@@ -1,3 +1,4 @@
+import gc
 import math
 import warnings
 from os.path import join as pjoin
@@ -9,9 +10,9 @@ import librosa
 import numpy as np
 import pandas as pd
 import torch
-import gc
 from tqdm import tqdm
 
+from ..augmentations.transforms import BackgroundNoise
 from ..utils import load_json, load_pp_audio, parallel_librosa_load
 
 DEFAULT_TARGET = 0
@@ -50,6 +51,7 @@ class WaveDataset(torch.utils.data.Dataset):
         pos_dtype=None,
         sampler_col=None,
         use_h5py=False,
+        empty_soundscape_config=None,
     ):
         super().__init__()
         if use_h5py and precompute:
@@ -93,33 +95,23 @@ class WaveDataset(torch.utils.data.Dataset):
         else:
             self.label_str2int = None
         try:
-            self.df["secondary_labels"] = self.df["secondary_labels"].apply(
-                eval
-            )
+            self.df["secondary_labels"] = self.df["secondary_labels"].apply(eval)
         except:
-            print(
-                "secondary_labels is not found in df. Maybe test or nocall mode"
-            )
+            print("secondary_labels is not found in df. Maybe test or nocall mode")
         if shuffle:
             self.df = self.df.sample(frac=1).reset_index(drop=True)
 
-        self.df[f"{name_col}_with_root"] = self.df[name_col].apply(
-            lambda x: pjoin(root, x)
-        )
+        self.df[f"{name_col}_with_root"] = self.df[name_col].apply(lambda x: pjoin(root, x))
         if filename_change_mapping is not None:
             self.df[f"{name_col}_with_root"] = self.df.apply(
                 lambda row: row[f"{name_col}_with_root"].replace(
                     filename_change_mapping["base"], filename_change_mapping[row["dataset"]]
-                ), 
-                axis=1
+                ),
+                axis=1,
             )
         if replace_pathes is not None:
-            self.df[f"{name_col}_with_root"] = self.df[
-                f"{name_col}_with_root"
-            ].apply(
-                lambda x: pjoin(
-                    replace_pathes[1], relpath(x, replace_pathes[0])
-                )
+            self.df[f"{name_col}_with_root"] = self.df[f"{name_col}_with_root"].apply(
+                lambda x: pjoin(replace_pathes[1], relpath(x, replace_pathes[0]))
             )
 
         self.target_col = target_col
@@ -127,13 +119,12 @@ class WaveDataset(torch.utils.data.Dataset):
         self.name_col = f"{name_col}_with_root"
         self.rating_col = rating_col
         self.late_normalize = late_normalize
+        self.empty_soundscape_config = empty_soundscape_config
 
         self.precompute = precompute
         self.use_h5py = use_h5py
         if self.use_h5py:
-            self.df[self.name_col] = self.df[self.name_col].apply(
-                lambda x: splitext(x)[0] + ".hdf5"
-            )
+            self.df[self.name_col] = self.df[self.name_col].apply(lambda x: splitext(x)[0] + ".hdf5")
 
         self.sample_rate = sample_rate
         self.do_noisereduce = do_noisereduce
@@ -144,9 +135,7 @@ class WaveDataset(torch.utils.data.Dataset):
         self.late_aug = late_aug
         if mixup_params is not None and mixup_params.get("weights_path", None):
             if not use_sampler:
-                raise ValueError(
-                    "Mixup with weighted sampling requires `use_sampler=True`"
-                )
+                raise ValueError("Mixup with weighted sampling requires `use_sampler=True`")
         self.do_mixup = do_mixup
         self.mixup_params = mixup_params
 
@@ -166,9 +155,7 @@ class WaveDataset(torch.utils.data.Dataset):
                     pos_dtype=self.pos_dtype,
                 )
                 assert all(au is not None for au in self.audio_cache)
-                self.audio_cache = {
-                    i: el for i, el in enumerate(self.audio_cache)
-                }
+                self.audio_cache = {i: el for i, el in enumerate(self.audio_cache)}
             else:
                 print("NOT Parallel load")
                 self.audio_cache = {
@@ -189,15 +176,14 @@ class WaveDataset(torch.utils.data.Dataset):
 
         if use_sampler:
             self.targets = (
-                self.df[sampler_col].tolist()
-                if sampler_col is not None
-                else self.df[self.target_col].tolist()
+                self.df[sampler_col].tolist() if sampler_col is not None else self.df[self.target_col].tolist()
             )
         if mixup_params.get("weights_path", None):
             self.weights = load_json(mixup_params["weights_path"])
-            self.weights = torch.FloatTensor(
-                [self.weights[el] for el in self.targets]
-            )
+            self.weights = torch.FloatTensor([self.weights[el] for el in self.targets])
+
+        if self.empty_soundscape_config is not None:
+            self.empty_sampler = BackgroundNoise(**self.empty_soundscape_config["sampler_config"])
 
     def turn_off_all_augs(self):
         print("All augs Turned Off")
@@ -211,9 +197,7 @@ class WaveDataset(torch.utils.data.Dataset):
     def _prepare_sample_piece(self, input):
         if input.shape[0] < self.segment_len:
             pad_len = self.segment_len - input.shape[0]
-            return np.pad(
-                np.array(input) if self.use_h5py else input, ((pad_len, 0))
-            )
+            return np.pad(np.array(input) if self.use_h5py else input, ((pad_len, 0)))
         elif input.shape[0] > self.segment_len:
             start = np.random.randint(0, input.shape[0] - self.segment_len)
             return (
@@ -234,16 +218,16 @@ class WaveDataset(torch.utils.data.Dataset):
             if main_tgt == "nocall":
                 all_tgt = []
             else:
-                all_tgt = [self.label_str2int[main_tgt]] + [
-                    self.label_str2int[el] for el in sec_tgt if el != ""
-                ]
-        all_tgt = torch.nn.functional.one_hot(
-            torch.LongTensor(all_tgt), len(self.label_str2int)
-        ).float()
+                all_tgt = [self.label_str2int[main_tgt]] + [self.label_str2int[el] for el in sec_tgt if el != ""]
+        all_tgt = torch.nn.functional.one_hot(torch.LongTensor(all_tgt), len(self.label_str2int)).float()
         all_tgt = torch.clamp(all_tgt.sum(0), 0.0, 1.0)
         return all_tgt
 
     def _prepare_sample_target_from_idx(self, idx: int):
+        if self.empty_soundscape_config is not None and np.random.binomial(1, self.empty_soundscape_config["prob"]):
+            wave = self.empty_sampler.sample(sample_length=self.segment_len)
+            target = torch.zeros(len(self.label_str2int)).float()
+            return wave, target
         if self.use_h5py:
             with h5py.File(self.df[self.name_col].iloc[idx], "r") as f:
                 wave = self._prepare_sample_piece(f["au"])
@@ -287,9 +271,7 @@ class WaveDataset(torch.utils.data.Dataset):
 
     def _get_mixup_idx(self):
         if self.mixup_params.get("weights_path", None):
-            mixup_idx = torch.multinomial(
-                self.weights, 1, replacement=True
-            ).item()
+            mixup_idx = torch.multinomial(self.weights, 1, replacement=True).item()
         else:
             mixup_idx = np.random.randint(0, self.__len__())
         return mixup_idx
@@ -299,9 +281,7 @@ class WaveDataset(torch.utils.data.Dataset):
 
         # Mixup/Cutmix/Fmix
         # .....
-        if self.do_mixup and np.random.binomial(
-            n=1, p=self.mixup_params["prob"]
-        ):
+        if self.do_mixup and np.random.binomial(n=1, p=self.mixup_params["prob"]):
             n_samples = self.mixup_params.get("n_samples", 1)
             assert n_samples >= 1
             if n_samples == 1:
@@ -332,9 +312,7 @@ class WaveDataset(torch.utils.data.Dataset):
                     wave = (mixup_wave + wave) / 2
                     target = mixup_target + target
             else:
-                mix_weight = np.random.beta(
-                    self.mixup_params["alpha"], self.mixup_params["alpha"]
-                )
+                mix_weight = np.random.beta(self.mixup_params["alpha"], self.mixup_params["alpha"])
                 if self.mixup_params.get("weight_trim", False):
                     mix_weight = min(
                         max(mix_weight, self.mixup_params["weight_trim"][0]),
@@ -344,9 +322,7 @@ class WaveDataset(torch.utils.data.Dataset):
                 if self.mixup_params.get("hard_target", True):
                     target = mixup_target + target
                 else:
-                    target = (
-                        mix_weight * mixup_target + (1 - mix_weight) * target
-                    )
+                    target = mix_weight * mixup_target + (1 - mix_weight) * target
 
             target = torch.clamp(target, min=0, max=1.0)
             if self.late_normalize:
@@ -392,6 +368,7 @@ class WaveAllFileDataset(WaveDataset):
         use_eps_in_slicing=False,
         dfidx_2_sample_id=False,
         do_noisereduce=False,
+        load_normalize=False,
         late_normalize=False,
         use_h5py=False,
         # In BirdClef Comp, it is claimed that all samples in 32K sr
@@ -400,17 +377,15 @@ class WaveAllFileDataset(WaveDataset):
         **kwargs,
     ):
         if kwargs:
-            warnings.warn(
-                f"WaveAllFileDataset received extra parameters: {kwargs}"
-            )
+            warnings.warn(f"WaveAllFileDataset received extra parameters: {kwargs}")
         if df_path is not None:
             df = pd.read_csv(df_path)
         if test_mode and soundscape_mode:
-            raise RuntimeError(
-                "only test_mode or soundscape_mode can be activated"
-            )
+            raise RuntimeError("only test_mode or soundscape_mode can be activated")
         if precompute and use_audio_cache:
             raise RuntimeError("audio_cache is useless if you use precompute")
+        if use_h5py and load_normalize:
+            raise RuntimeError("load_normalize is not supported with h5py")
         super().__init__(
             df=df,
             add_df_paths=add_df_paths,
@@ -435,16 +410,15 @@ class WaveAllFileDataset(WaveDataset):
             use_h5py=use_h5py,
         )
         self.validate_sr = validate_sr
+        self.load_normalize = load_normalize
         if precompute and soundscape_mode:
             self.audio_cache = {
                 # Extract only audio, without sample_rate
                 im_name: load_pp_audio(
                     im_name,
-                    sr=None
-                    if self.validate_sr is not None
-                    else self.sample_rate,
+                    sr=None if self.validate_sr is not None else self.sample_rate,
                     do_noisereduce=do_noisereduce,
-                    normalize=not self.late_normalize,
+                    normalize=(not self.late_normalize) and self.load_normalize,
                     validate_sr=self.validate_sr,
                 )
                 for im_name in tqdm(
@@ -464,9 +438,7 @@ class WaveAllFileDataset(WaveDataset):
         eps = EPS if use_eps_in_slicing else 0
 
         if sample_id is not None:
-            self.df[self.sample_id] = (
-                self.df[self.sample_id].astype("category").cat.codes
-            )
+            self.df[self.sample_id] = self.df[self.sample_id].astype("category").cat.codes
 
         self.sampleidx_2_dfidx = {}
         if lookahead is not None and lookback is not None:
@@ -476,9 +448,7 @@ class WaveAllFileDataset(WaveDataset):
             self.hard_slicing = True
             itter = 0
             if soundscape_mode:
-                samples_generator = enumerate(
-                    self.df.drop_duplicates(self.name_col)[self.duration_col]
-                )
+                samples_generator = enumerate(self.df.drop_duplicates(self.name_col)[self.duration_col])
             else:
                 samples_generator = enumerate(self.df[self.duration_col])
             for dfidx, dur in samples_generator:
@@ -487,13 +457,8 @@ class WaveAllFileDataset(WaveDataset):
                     self.sampleidx_2_dfidx[itter] = {
                         "dfidx": itter if soundscape_mode else dfidx,
                         "start": int(real_start * self.sample_rate),
-                        "end": int(
-                            (real_start + lookback + segment_len + lookahead)
-                            * self.sample_rate
-                        ),
-                        "end_s": min(
-                            int(real_start + lookback + segment_len), dur
-                        ),
+                        "end": int((real_start + lookback + segment_len + lookahead) * self.sample_rate),
+                        "end_s": min(int(real_start + lookback + segment_len), dur),
                     }
                     real_start += step
                     itter += 1
@@ -501,9 +466,7 @@ class WaveAllFileDataset(WaveDataset):
             self.hard_slicing = False
             t_start = 0
             if soundscape_mode:
-                samples_generator = enumerate(
-                    self.df.drop_duplicates(self.name_col)[self.duration_col]
-                )
+                samples_generator = enumerate(self.df.drop_duplicates(self.name_col)[self.duration_col])
             else:
                 samples_generator = enumerate(self.df[self.duration_col])
             for dfidx, dur in samples_generator:
@@ -529,21 +492,16 @@ class WaveAllFileDataset(WaveDataset):
             print(msg)
 
     def _hadle_au_cache(self, dfidx):
-        if (
-            self.test_audio_cache["dfidx"] is None
-            or self.test_audio_cache["dfidx"] != dfidx
-        ):
+        if self.test_audio_cache["dfidx"] is None or self.test_audio_cache["dfidx"] != dfidx:
             del self.test_audio_cache["au"]
             gc.collect()
             start_time = time()
-            self._print_v(
-                f"Loading {self.df[self.name_col].iloc[dfidx]} to audio cache"
-            )
+            self._print_v(f"Loading {self.df[self.name_col].iloc[dfidx]} to audio cache")
             self.test_audio_cache["au"] = load_pp_audio(
                 self.df[self.name_col].iloc[dfidx],
                 sr=None if self.validate_sr is not None else self.sample_rate,
                 do_noisereduce=self.do_noisereduce,
-                normalize=not self.late_normalize,
+                normalize=(not self.late_normalize) and self.load_normalize,
                 validate_sr=self.validate_sr,
             )
             self.test_audio_cache["dfidx"] = dfidx
@@ -594,9 +552,7 @@ class WaveAllFileDataset(WaveDataset):
         if self.use_h5py:
             with h5py.File(self.df[self.name_col].iloc[dfidx], "r") as f:
                 if self.hard_slicing:
-                    wave = self._prepare_sample_piece_hard(
-                        f["au"], start=start, end=map_dict["end"]
-                    )
+                    wave = self._prepare_sample_piece_hard(f["au"], start=start, end=map_dict["end"])
                 else:
                     wave, _ = self._prepare_sample_piece(f["au"], start=start)
         else:
@@ -612,17 +568,13 @@ class WaveAllFileDataset(WaveDataset):
                 else:
                     wave = load_pp_audio(
                         self.df[self.name_col].iloc[dfidx],
-                        sr=None
-                        if self.validate_sr is not None
-                        else self.sample_rate,
+                        sr=None if self.validate_sr is not None else self.sample_rate,
                         do_noisereduce=self.do_noisereduce,
                         normalize=not self.late_normalize,
                         validate_sr=self.validate_sr,
                     )
             if self.hard_slicing:
-                wave = self._prepare_sample_piece_hard(
-                    wave, start=start, end=map_dict["end"]
-                )
+                wave = self._prepare_sample_piece_hard(wave, start=start, end=map_dict["end"])
             else:
                 wave, _ = self._prepare_sample_piece(wave, start=start)
 
@@ -654,15 +606,11 @@ class WaveAllFileDataset(WaveDataset):
         return wave, target, dfidx, start, end
 
     def __getitem__(self, index: int):
-        wave, target, dfidx, start, end = self._prepare_sample_target_from_idx(
-            index
-        )
+        wave, target, dfidx, start, end = self._prepare_sample_target_from_idx(index)
 
         # Mixup/Cutmix/Fmix
         # .....
-        if self.do_mixup and np.random.binomial(
-            n=1, p=self.mixup_params["prob"]
-        ):
+        if self.do_mixup and np.random.binomial(n=1, p=self.mixup_params["prob"]):
             raise RuntimeError("Not implemented")
 
         if self.late_aug is not None:

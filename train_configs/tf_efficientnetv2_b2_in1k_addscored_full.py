@@ -24,9 +24,9 @@ CONFIG = {
     "seed": 1243,
     "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_metadata_extended_noduplv1.csv",
     "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/birdclef_2024_5_folds_split_nodupl.npy",
-    "exp_name": "convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_5Folds_NoDuplsV1_NM",
+    "exp_name": "tf_efficientnetv2_b2_in1k_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e3_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
-    "folds": [0, 1, 2, 3, 4],
+    "folds": None,
     "train_function": lightning_training,
     "train_function_args": {
         "train_dataset_class": WaveDataset,
@@ -44,6 +44,20 @@ CONFIG = {
             "use_sampler": True,
             "shuffle": True,
             "use_h5py": True,
+            "add_df_paths": [
+                "/home/vova/data/exps/birdclef_2024/dfs/full_noduplsV3_scored_meta_prev_comps_extended_2024SecLabels.csv",
+                "/home/vova/data/exps/birdclef_2024/xeno_canto/dataset_2024_classes/train_metadata_noduplV3_extended_2024SecLabels.csv",
+            ],
+            "filename_change_mapping": {
+                "base": "birdclef_2024/train_features/",
+                "comp_2021": "birdclef_2021/train_features/",
+                "comp_2023": "birdclef_2023/train_features/",
+                "comp_2022": "birdclef_2022/train_features/",
+                "comp_2020": "birdsong_recognition/train_features/",
+                "a_m_2020": "xeno_canto_bird_recordings_extended_a_m/train_features/",
+                "n_z_2020": "xeno_canto_bird_recordings_extended_n_z/train_features/",
+                "xc_2024_classes": "xeno_canto/dataset_2024_classes/train_features/",
+            },
             "late_aug": BackgroundNoise(
                 p=0.5,
                 esc50_root="/home/vova/data/exps/birdclef_2024/my_2023_data/soundscapes_nocall/train_audio",
@@ -79,7 +93,7 @@ CONFIG = {
         },
         "nn_model_class": WaveCNNAttenClasifier,
         "nn_model_config": dict(
-            backbone="convnextv2_tiny.fcmae_ft_in22k_in1k_384",
+            backbone="tf_efficientnetv2_b2.in1k",
             mel_spec_paramms={
                 "sample_rate": 32000,
                 "n_mels": 128,
@@ -110,9 +124,9 @@ CONFIG = {
             },
             exportable=True,
         ),
-        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-4),
+        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-3),
         "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=N_EPOCHS * len_train, T_mult=1, eta_min=1e-6, last_epoch=-1
+            optimizer, T_0=int((N_EPOCHS * len_train) * 1.1), T_mult=1, eta_min=1e-6, last_epoch=-1
         ),
         "scheduler_params": {"interval": "step", "monitor": MAIN_METRIC},
         "forward": lambda: MultilabelClsForwardLongShort(
@@ -125,7 +139,7 @@ CONFIG = {
             ROC_AUC_Score(
                 pred_key="clipwise_pred_long",
                 loader_names=("valid",),
-                # aggr_key="dfidx",
+                aggr_key="dfidx",
                 use_sigmoid=False,
                 label_str2int_mapping_path=PATH_TO_JSON_MAPPING,
                 scored_bird_path="/home/vova/data/exps/birdclef_2024/scored_birds/sb_2024.json",
@@ -149,7 +163,7 @@ CONFIG = {
         "log_every_n_steps": None,
         "debug": DEBUG,
         "label_str2int_path": PATH_TO_JSON_MAPPING,
-        "class_weights_path": "/home/vova/data/exps/birdclef_2024/sample_weights/sw_2024_v1.json",
+        "class_weights_path": "/home/vova/data/exps/birdclef_2024/sample_weights/sw_2024_add_data_v1.json",
         "use_sampler": True,
     },
 }

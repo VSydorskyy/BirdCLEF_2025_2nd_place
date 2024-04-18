@@ -30,25 +30,43 @@
     - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
   # description: CV from 3 SWA
   results:
-    Folds Roc Auc: 
-    Mean Roc Auc: 
-    OOF Roc Auc: 
+    Folds Roc Auc:
+    Mean Roc Auc:
+    OOF Roc Auc:
     Public ONNX Full Train: 0.63
 -
   models:
     - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch15_FocalLoss_Full_NoDuplsV1
   # description: CV from 3 SWA
   results:
-    Folds Roc Auc: 
-    Mean Roc Auc: 
-    OOF Roc Auc: 
+    Folds Roc Auc:
+    Mean Roc Auc:
+    OOF Roc Auc:
     Public ONNX Full Train: 0.63
 -
   models:
     - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch50_FocalLoss_Full_NoDuplsV1
   # description: CV from 3 SWA
   results:
-    Folds Roc Auc: 
-    Mean Roc Auc: 
-    OOF Roc Auc: 
+    Folds Roc Auc:
+    Mean Roc Auc:
+    OOF Roc Auc:
     Public ONNX Full Train: 0.63
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_BCELoss_Full_NoDuplsV1_fp16
+  # description: CV from 3 SWA
+  results:
+    Folds Roc Auc:
+    Mean Roc Auc:
+    OOF Roc Auc:
+    Public ONNX Full Train: 0.59
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_CELoss_Full_NoDuplsV1_fp16
+  description: SoftMax Activation
+  results:
+    Folds Roc Auc:
+    Mean Roc Auc:
+    OOF Roc Auc:
+    Public ONNX Full Train: 0.57

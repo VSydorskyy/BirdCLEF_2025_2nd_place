@@ -148,9 +148,7 @@ class PinkNoise(AudioTransform):
 
 
 class PitchShift(AudioTransform):
-    def __init__(
-        self, always_apply=False, p=0.5, max_range=5, sr=32000, normalize=True
-    ):
+    def __init__(self, always_apply=False, p=0.5, max_range=5, sr=32000, normalize=True):
         super().__init__(always_apply, p)
         self.max_range = max_range
         self.sr = sr
@@ -165,9 +163,7 @@ class PitchShift(AudioTransform):
 
 
 class TimeStretch(AudioTransform):
-    def __init__(
-        self, always_apply=False, p=0.5, max_rate=1, sr=32000, normalize=True
-    ):
+    def __init__(self, always_apply=False, p=0.5, max_rate=1, sr=32000, normalize=True):
         super().__init__(always_apply, p)
         self.max_rate = max_rate
         self.sr = sr
@@ -272,28 +268,23 @@ class BackgroundNoise(AudioTransform):
         normalize=True,
         verbose=False,
         glob_recursive=False,
+        debug=False,
     ):
         super().__init__(always_apply, p)
         assert min_level < max_level
         assert 0 < min_level < 1
         assert 0 < max_level < 1
-        if background_regex is None and (
-            esc50_root is None or esc50_df_path is None
-        ):
-            raise ValueError(
-                "background_regex OR esc50_root AND esc50_df_path should be defined"
-            )
+        if background_regex is None and (esc50_root is None or esc50_df_path is None):
+            raise ValueError("background_regex OR esc50_root AND esc50_df_path should be defined")
         if background_regex is not None:
             sample_names = glob(background_regex, recursive=glob_recursive)
         else:
             sample_df = pd.read_csv(esc50_df_path)
             if esc50_cats_to_include is not None:
-                sample_df = sample_df[
-                    sample_df.category.isin(esc50_cats_to_include)
-                ]
-            sample_names = [
-                pjoin(esc50_root, el) for el in sample_df.filename.tolist()
-            ]
+                sample_df = sample_df[sample_df.category.isin(esc50_cats_to_include)]
+            sample_names = [pjoin(esc50_root, el) for el in sample_df.filename.tolist()]
+        if debug:
+            sample_names = sample_names[:10]
         self.samples = parallel_librosa_load(
             sample_names,
             return_sr=False,
@@ -309,24 +300,30 @@ class BackgroundNoise(AudioTransform):
         start = np.random.randint(0, sample.shape[0] - crop_shape)
         return sample[start : start + crop_shape]
 
-    def apply(self, y: np.ndarray, **params):
+    def _pick_random_valid_sample(self):
         # TODO: It is a hack. Validate dataset better and remove this
-        back_sample = None
+        sample = None
         attempts = 0
-        while back_sample is None:
-            back_sample = self.samples[np.random.randint(len(self.samples))]
+        while sample is None:
+            sample = self.samples[np.random.randint(len(self.samples))]
             attempts += 1
             if attempts > 1:
                 print("BackgroundNoise failed with one sample. Trying another. Attempt: ", attempts)
+        return sample
 
-        if y.shape[0] < back_sample.shape[0]:
-            back_sample = self.crop_sample(back_sample, y.shape[0])
-        elif y.shape[0] > back_sample.shape[0]:
-            repeat_times = math.ceil(y.shape[0] / back_sample.shape[0])
-            back_sample = np.concatenate([back_sample] * repeat_times)
-            if back_sample.shape[0] > y.shape[0]:
-                back_sample = self.crop_sample(back_sample, y.shape[0])
+    def _pad_or_crop_sample(self, sample, target_length):
+        if target_length < sample.shape[0]:
+            sample = self.crop_sample(sample, target_length)
+        elif target_length > sample.shape[0]:
+            repeat_times = math.ceil(target_length / sample.shape[0])
+            sample = np.concatenate([sample] * repeat_times)
+            if sample.shape[0] > target_length:
+                sample = self.crop_sample(sample, target_length)
+        return sample
 
+    def apply(self, y: np.ndarray, **params):
+        back_sample = self._pick_random_valid_sample()
+        back_sample = self._pad_or_crop_sample(back_sample, y.shape[0])
         back_amp = np.random.uniform(*self.min_max_levels)
         if self.verbose:
             print(f"BackgroundNoise. back_amp: {back_amp}")
@@ -335,3 +332,12 @@ class BackgroundNoise(AudioTransform):
         if self.normalize:
             augmented = librosa.util.normalize(augmented)
         return augmented
+
+    def sample(self, sample_length: int):
+        sample = self._pick_random_valid_sample()
+        sample = self._pad_or_crop_sample(sample, sample_length)
+
+        if self.normalize:
+            sample = librosa.util.normalize(sample)
+
+        return sample

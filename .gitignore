@@ -8,3 +8,5 @@ logdirs
 excepted_birds.json
 *xeno-canto-py*
 notebooks/old_notebooks
+all_xeno_canto_species.json
+notebooks/chirp
