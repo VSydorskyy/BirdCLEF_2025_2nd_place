@@ -1,7 +1,7 @@
 import os
+from pprint import pprint
 from time import time
 from typing import Callable, Dict, List, Optional, Union
-from pprint import pprint
 
 import lightning as L
 import numpy as np
@@ -11,6 +11,7 @@ from lightning.pytorch import loggers as pl_loggers
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 
 from code_base.utils import load_json
+from code_base.utils.swa import create_chkp
 
 
 class LitTrainer(L.LightningModule):
@@ -186,9 +187,7 @@ def lightning_training(
     add_train_dataset_config: Optional[Union[dict, List[dict]]] = None,
     add_train_dataset_df_path: Optional[Union[Optional[str], List[Optional[str]]]] = None,
     device_outside_model: bool = False,
-    pretrain_checkpoint_path: Optional[str] = None,
-    strict_pretrain: bool = True,
-
+    pretrain_config: Optional[dict] = None,
     class_weights_path: Optional[str] = None,
     label_str2int_path: Optional[str] = None,
     selected_birds: Optional[List[str]] = None,
@@ -223,13 +222,9 @@ def lightning_training(
         print("Using next class weights:")
         pprint(class_weights)
     if use_class_weights and use_sampler:
-        sample_weights = np.array(
-            [class_weights[el] for el in train_dataset.targets]
-        )
+        sample_weights = np.array([class_weights[el] for el in train_dataset.targets])
         assert len(sample_weights) == len(train_dataset)
-        sampler = torch.utils.data.WeightedRandomSampler(
-            sample_weights, len(sample_weights)
-        )
+        sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights))
         print("Sampler Created")
     else:
         sampler = None
@@ -286,21 +281,26 @@ def lightning_training(
     else:
         model = nn_model_class(device=device, **nn_model_config)
 
-    if pretrain_checkpoint_path is not None:
-        pretrain_checkpoint = torch.load(pretrain_checkpoint_path, map_location="cpu")
+    if pretrain_config is not None:
+        pretrain_checkpoint = create_chkp(**pretrain_config)
+        print("Missing keys: ", set(model.state_dict().keys()) - set(pretrain_checkpoint))
+        print("Extra keys: ", set(pretrain_checkpoint) - set(model.state_dict().keys()))
+        model.load_state_dict(pretrain_checkpoint, strict=False)
+    # if pretrain_checkpoint_path is not None:
+    #     pretrain_checkpoint = torch.load(pretrain_checkpoint_path, map_location="cpu")
 
-        if not strict_pretrain:
-            keys_to_remove = []
-            for key in pretrain_checkpoint.keys():
-                if model.state_dict()[key].shape != pretrain_checkpoint[key].shape:
-                    keys_to_remove.append(key)
+    #     if not strict_pretrain:
+    #         keys_to_remove = []
+    #         for key in pretrain_checkpoint.keys():
+    #             if model.state_dict()[key].shape != pretrain_checkpoint[key].shape:
+    #                 keys_to_remove.append(key)
 
-            print("Keys to remove from pretrain checkpoint:", keys_to_remove)
+    #         print("Keys to remove from pretrain checkpoint:", keys_to_remove)
 
-            for key in keys_to_remove:
-                del pretrain_checkpoint[key]
+    #         for key in keys_to_remove:
+    #             del pretrain_checkpoint[key]
 
-        model.load_state_dict(pretrain_checkpoint, strict=strict_pretrain)
+    #     model.load_state_dict(pretrain_checkpoint, strict=strict_pretrain)
 
     for k in loaders.keys():
         print(f"{k} Loader Len = {len(loaders[k])}")
@@ -315,12 +315,7 @@ def lightning_training(
         print("Setting loss weights ...")
         label_str2int = load_json(label_str2int_path)
         class_weights_array = (
-            pd.Series(
-                {
-                    label_str2int[k]: class_weights[k]
-                    for k in label_str2int.keys()
-                }
-            )
+            pd.Series({label_str2int[k]: class_weights[k] for k in label_str2int.keys()})
             .sort_index()
             .values.astype(np.float32)
         )
@@ -329,9 +324,7 @@ def lightning_training(
     if hasattr(forward, "use_slected_indices") and forward.use_slected_indices:
         print("Setting slected_indices ...")
         label_str2int = load_json(label_str2int_path)
-        forward.set_selected_indices(
-            [label_str2int[el] for el in selected_birds], device
-        )
+        forward.set_selected_indices([label_str2int[el] for el in selected_birds], device)
 
     lightning_model = LitTrainer(
         model,

@@ -368,7 +368,7 @@ class WaveAllFileDataset(WaveDataset):
         use_eps_in_slicing=False,
         dfidx_2_sample_id=False,
         do_noisereduce=False,
-        load_normalize=False,
+        load_normalize=True,
         late_normalize=False,
         use_h5py=False,
         # In BirdClef Comp, it is claimed that all samples in 32K sr

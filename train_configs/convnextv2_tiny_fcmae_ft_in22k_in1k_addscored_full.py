@@ -11,9 +11,9 @@ from code_base.train_functions.train_lightning import lightning_training
 
 B_S = 64
 TRAIN_PERIOD = 5.0
-N_EPOCHS = 30
+N_EPOCHS = 40
 ROOT_PATH = "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_features/"
-LATE_NORMALIZE = False
+LATE_NORMALIZE = True
 MAXIMIZE_METRIC = True
 MAIN_METRIC = "valid_roc_auc"
 PATH_TO_JSON_MAPPING = "/home/vova/data/exps/birdclef_2024/class_mappings/bird2int_2024.json"
@@ -24,7 +24,7 @@ CONFIG = {
     "seed": 1243,
     "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_metadata_extended_noduplv1.csv",
     "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/birdclef_2024_5_folds_split_nodupl.npy",
-    "exp_name": "convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_NoNorm_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1",
+    "exp_name": "convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_SoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch40_FocalLoss_Full_NoDuplsV1",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
     "folds": None,
     "train_function": lightning_training,
@@ -57,6 +57,14 @@ CONFIG = {
                 "a_m_2020": "xeno_canto_bird_recordings_extended_a_m/train_features/",
                 "n_z_2020": "xeno_canto_bird_recordings_extended_n_z/train_features/",
                 "xc_2024_classes": "xeno_canto/dataset_2024_classes/train_features/",
+            },
+            "empty_soundscape_config": {
+                "prob": 0.5,
+                "sampler_config": {
+                    "esc50_root": "/home/vova/data/exps/birdclef_2024/my_2023_data/soundscapes_nocall/train_audio",
+                    "esc50_df_path": "/home/vova/data/exps/birdclef_2024/my_2023_data/soundscapes_nocall/v1_no_call_meta.csv",
+                    "normalize": False,
+                },
             },
         },
         "val_dataset_class": WaveAllFileDataset,

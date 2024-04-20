@@ -1,3 +1,5 @@
+# All Ideas
+
 - 2024 XC metadata - https://www.kaggle.com/datasets/kunihikofurugori/birdclef2024-metadataset
 - torch.jit optimization - https://www.kaggle.com/competitions/birdclef-2024/discussion/492649
     ```python
@@ -12,3 +14,11 @@
 - Birds denoising - https://www.kaggle.com/code/lihaoweicvch/bird-sound-denoise-by-deep-model
 - Google Bird Model - https://www.kaggle.com/models/google/bird-vocalization-classifier/TensorFlow2/bird-vocalization-classifier/4
 - Found duplicates - https://www.kaggle.com/competitions/birdclef-2024/discussion/494134
+- Data from nearby comps - https://www.kaggle.com/competitions/birdclef-2024/discussion/494516
+- Folds variations - https://www.kaggle.com/competitions/birdclef-2024/discussion/494534
+- Guy coppied predictions in one .ogg file and another guy fixed it and got worse score !!!
+    - https://www.kaggle.com/competitions/birdclef-2024/discussion/492135
+
+# Top ideas
+
+- Openvino MultiThread - https://www.kaggle.com/competitions/birdclef-2024/discussion/494665
