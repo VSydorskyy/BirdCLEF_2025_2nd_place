@@ -371,6 +371,86 @@ class AttHead(nn.Module):
                 # Combined
                 "framewise_clipwise_pred_short": framewise_clipwise_pred_short,
             }
+        
+
+class AttHeadSimplified(nn.Module):
+    def __init__(
+        self,
+        in_chans: int,
+        p: float = 0.5,
+        num_class: int = 397,
+        output_type: Optional[str] = None,
+        exportable: bool = False,
+        omit_pooling: bool = False,
+    ):
+        super().__init__()
+        self.output_type = output_type
+        if omit_pooling:
+            self.pooling = None
+        else:
+            self.pooling = GeMFreq(exportable=exportable)
+
+        self.dense_layers = nn.Sequential(
+            nn.Dropout(p / 2),
+            nn.Linear(in_chans, 512),
+            nn.ReLU(),
+            nn.Dropout(p),
+        )
+        self.attention = nn.Conv1d(
+            in_channels=512,
+            out_channels=num_class,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            bias=True,
+        )
+        self.fix_scale = nn.Conv1d(
+            in_channels=512,
+            out_channels=num_class,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            bias=True,
+        )
+
+    def forward(self, feat, output_type=None):
+        # Output type is called to get rid of unused calculations
+        if output_type is None:
+            output_type = self.output_type
+        if self.pooling is not None:
+            feat = self.pooling(feat).squeeze(-2).permute(0, 2, 1)  # (bs, time, ch)
+        feat = self.dense_layers(feat).permute(0, 2, 1)  # (bs, 512, time)
+
+        time_att = torch.tanh(self.attention(feat))
+        feat_v = self.fix_scale(feat)
+        if output_type == "framewise_logits_long":
+            return feat_v.permute(0, 2, 1)
+        if output_type == "framewise_pred_long":
+            return torch.sigmoid(feat_v).permute(0, 2, 1)
+
+        softmaxed_time_att = torch.softmax(time_att, dim=-1)
+        if output_type != "clipwise_logits_long":
+            clipwise_pred = torch.sum(
+                torch.sigmoid(feat_v) * softmaxed_time_att,
+                dim=-1,
+            )
+        if output_type == "clipwise_pred_long":
+            return clipwise_pred
+
+        clipwise_logits = torch.sum(
+            feat_v * softmaxed_time_att,
+            dim=-1,
+        )
+        if output_type == "clipwise_logits_long":
+            return clipwise_logits
+        return {
+            # Clipwise
+            "clipwise_pred_long": clipwise_pred,
+            "clipwise_logits_long": clipwise_logits,
+            # Framewise
+            "framewise_logits_long": feat_v.permute(0, 2, 1),
+            "framewise_pred_long": torch.sigmoid(feat_v).permute(0, 2, 1),
+        }
 
 
 class TraceableMelspec(nn.Module):
@@ -454,6 +534,47 @@ class TraceableMelspec(nn.Module):
                 spec_f = spec_f.pow(self.power)
         mel_spec = self.mel_scale(spec_f)
         return mel_spec
+    
+class AttnBlock(nn.Module):
+    def __init__(self, embed_dim, dropout):
+        super().__init__()
+
+        self.embed_dim = embed_dim
+
+        self.c_attn = nn.Linear(embed_dim, 3 * embed_dim, bias=False)
+
+        self.ln_1 = nn.LayerNorm(embed_dim)
+        self.attn = nn.MultiheadAttention(
+            embed_dim=embed_dim,
+            num_heads=1,
+            dropout=dropout,
+            bias=True,
+            add_bias_kv=False,
+            add_zero_attn=False,
+            kdim=None,
+            vdim=None,
+            batch_first=True,
+            device=None,
+            dtype=None,
+        )
+        self.ln_2 = nn.LayerNorm(embed_dim)
+        self.mlp = nn.ModuleDict(
+            dict(
+                c_fc=nn.Linear(embed_dim, 4 * embed_dim),
+                c_proj=nn.Linear(4 * embed_dim, embed_dim),
+                act=nn.GELU(),
+                dropout=nn.Dropout(dropout),
+            )
+        )
+        m = self.mlp
+        self.mlpf = lambda x: m.dropout(m.c_proj(m.act(m.c_fc(x))))  # MLP forward
+
+    def forward(self, x):
+        ln = self.ln_1(x)
+        q, k, v = self.c_attn(ln).split(self.embed_dim, dim=2)
+        x = x + self.attn(query=q, key=k, value=v, need_weights=False)[0]
+        x = x + self.mlpf(self.ln_2(x))
+        return x
 
 
 class QuantizableSTFT(STFTBase):

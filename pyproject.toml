@@ -32,10 +32,11 @@ onnx = "1.15.0"
 onnxruntime = "^1.17.3"
 onnxsim = "^0.4.36"
 lightning = "^2.2.2"
-pytorch-toolbelt = "^0.6.3"
 tensorboard = "^2.16.2"
 onnxconverter-common = "^1.14.0"
 openvino = "^2024.0.0"
+pytorch-toolbelt = "^0.6.3"
+colorednoise = "^2.2.0"
 
 
 [build-system]

@@ -28,11 +28,11 @@
 -
   models:
     - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
-  description: CV from 3 SWA. No Duplicates V1. Not aggregated metric
+  description: Last. No Duplicates V1. Aggregated metric
   results:
-    Folds Roc Auc: [0.9533953363324612, 0.9487622889364927, 0.9529516835140253, 0.9489792183520229, 0.955436149676013]
-    Mean Roc Auc: 0.951904935362203
-    OOF Roc Auc: 0.9505246401180926
+    Folds Roc Auc: [0.9817457177335333, 0.9821786564598161, 0.9853893879425973, 0.9856194914363351, 0.9846477931069921]
+    Mean Roc Auc: 0.9839162093358548
+    OOF Roc Auc: 0.9830857404660085
     Public ONNX Full Train: 0.63
 -
   models:
@@ -55,11 +55,11 @@
 -
   models:
     - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_BCELoss_Full_NoDuplsV1_fp16
-  description: CV from 3 SWA. No Duplicates V1. Not aggregated metric
+  description: Last. No Duplicates V1. Aggregated metric
   results:
-    Folds Roc Auc: [0.9567251792409276, 0.9474024289082696, 0.954380486976806, 0.9516543744944194, 0.9528507709963812]
-    Mean Roc Auc: 0.9526026481233607
-    OOF Roc Auc: 0.9517125472280323
+    Folds Roc Auc: [0.9809087804264335, 0.9827575481338248, 0.9847888462652072, 0.980582185712736, 0.9779619866326142]
+    Mean Roc Auc: 0.9813998694341631
+    OOF Roc Auc: 0.9804576052639635
     Public ONNX Full Train: 0.59
 -
   models:
@@ -73,9 +73,135 @@
 -
   models:
     - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_5Folds_NoDuplsV1_NM
-  description: CV from 3 SWA. No Duplicates V1. Not aggregated metric
+  description: Last. No Duplicates V1. Aggregated metric
   results:
-    Folds Roc Auc: [0.9422033767618557, 0.9305381345962424, 0.9310449123703923, 0.9384871524633805, 0.9366250740465851]
-    Mean Roc Auc: 0.9357797300476911
-    OOF Roc Auc: 0.933783213088751
+    Folds Roc Auc: [0.9782218193038738, 0.9774608166686211, 0.9783115769749812, 0.973171386309356, 0.9744117435179535]
+    Mean Roc Auc: 0.9763154685549571
+    OOF Roc Auc: 0.9751186953354484
     Public ONNX Full Train: 0.57
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9767798046315702, 0.97884152924909, 0.9815349614356502, 0.9766513389533937, 0.9735579084385115]
+    Mean Roc Auc: 0.977473108541643
+    OOF Roc Auc: 0.9761874337631417
+    Public ONNX Full Train: 0.58
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_BalmixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9807974200458814, 0.9831785227115665, 0.9856311964160439, 0.9825799907248134, 0.9831178900539878]
+    Mean Roc Auc: 0.9830610039904586
+    OOF Roc Auc: 0.9820690432064451
+    Public ONNX Full Train: 0.62
+-
+  models: 
+    - tf_efficientnetv2_b0_in1k_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_mixupP05_RandomFiltering_balancedSampler_Radamlr1e3_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9787677154048215, 0.9825845388123527, 0.9839982356172244, 0.9721576564050326, 0.9821149830471579]
+    Mean Roc Auc: 0.9799246258573179
+    OOF Roc Auc: 0.9781242734391449
+    Public ONNX Full Train: 0.61
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_mixupP05_RandomFiltering_balancedSampler_Radamlr1e3_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9805036063749545, 0.9806365570370523, 0.9827749752269181, 0.980601783751702, 0.9813807096609318]
+    Mean Roc Auc: 0.9811795264103116
+    OOF Roc Auc: 0.979378797071766
+    Public ONNX Full Train: 0.63
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_ClfHead_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9813036598812442, 0.9822233844663384, 0.9861605625155118, 0.9828275776496139, 0.9797125324926371]
+    Mean Roc Auc: 0.982445543401069
+    OOF Roc Auc: 0.9815460349939843
+    Public ONNX Full Train: 0.61
+-
+  models:
+    - maxvit_rmlp_pico_rw_256_sw_in1k_Exp_FullAtten_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr3e4_CosBatchLR1e6_Epoch30_SpecAugV1_FocalLoss_Full_NoDuplsV1
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9813515460514961, 0.9848992706909876, 0.9854032221722215, 0.9800923542834318, 0.9807555247641871]
+    Mean Roc Auc: 0.9825003835924649
+    OOF Roc Auc: 0.9815276147557525
+    Public ONNX Full Train: 0.63
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_First5sec_PrevCompXCScoredDataNoSecLab_SoundScapeP035CorrectNorm_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.97243370056577, 0.9740509055791792, 0.975147127708206, 0.9746675615335613, 0.9722868993571143]
+    Mean Roc Auc: 0.973717238948766
+    OOF Roc Auc: 0.9724526199234524
+    Public ONNX Full Train: 0.60
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_First5sec_PrevCompXCScoredDataNoSecLab_SoundScapeP035CorrectNorm_mixupP05_NoSecLab_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9622490828189947, 0.9633882450284745, 0.9691982995144768, 0.9709904682543359, 0.9623110023195439]
+    Mean Roc Auc: 0.9656274195871651
+    OOF Roc Auc: 0.9646659256806636
+    Public ONNX Full Train: 0.58
+-
+  models:
+    - convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_SoundScapeP035CorrectNorm_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalLoss_Full_NoDuplsV1
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9832134781366388, 0.9831642303967681, 0.985215032952816, 0.9830311871054325, 0.9821973086337209]
+    Mean Roc Auc: 0.9833642474450753
+    OOF Roc Auc: 0.982587057858283
+    Public ONNX Full Train: 0.61
+-
+  models:
+    - 
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: 
+    Mean Roc Auc: 
+    OOF Roc Auc: 
+    Public ONNX Full Train:
+-
+  models:
+    - 
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: 
+    Mean Roc Auc: 
+    OOF Roc Auc: 
+    Public ONNX Full Train:
+-
+  models:
+    - 
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: 
+    Mean Roc Auc: 
+    OOF Roc Auc: 
+    Public ONNX Full Train:
+-
+  models:
+    - 
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: 
+    Mean Roc Auc: 
+    OOF Roc Auc: 
+    Public ONNX Full Train:
+-
+  models:
+    - 
+  description: Last. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: 
+    Mean Roc Auc: 
+    OOF Roc Auc: 
+    Public ONNX Full Train:

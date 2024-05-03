@@ -73,6 +73,7 @@ def convert_to_onnx(
     save_not_simplified=False, 
     use_fp16=False,
     use_openvino=False,
+    opset_version=12
 ):
     os.makedirs(base_path)
     torch.onnx.export(
@@ -82,7 +83,7 @@ def convert_to_onnx(
         sample_input,
         pjoin(base_path, "model.onnx"),
         export_params=True,
-        opset_version=12,
+        opset_version=opset_version,
         do_constant_folding=True,
         input_names=["input"],
         output_names=["output"],

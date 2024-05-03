@@ -68,3 +68,22 @@ def load_yaml(path: str) -> Mapping[str, Any]:
     with open(path, "r") as read_file:
         loaded_dict = yaml.load(read_file, Loader=yaml.FullLoader)
     return loaded_dict
+
+def sample_uniformly_np_index(merged_intervals):
+    # Calculate the total span of all intervals in terms of seconds
+    total_points = sum(interval[1] - interval[0] for interval in merged_intervals)
+
+    # Generate a random position within the total span as a float
+    random_position = np.random.randint(0, total_points)
+    
+    # Map the random position to an actual interval
+    current_position = 0
+    for index, (start, end) in enumerate(merged_intervals):
+        interval_length = end - start
+        if current_position + interval_length > random_position:
+            # Calculate the actual second within the interval as a float
+            sampled_point = start + (random_position - current_position)
+            return sampled_point, index
+        current_position += interval_length
+
+    raise RuntimeError("sample_uniformly_np_index was not able to pick chunk")

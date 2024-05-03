@@ -10,7 +10,7 @@ from code_base.train_functions.train_lightning import lightning_training
 
 B_S = 64
 TRAIN_PERIOD = 5.0
-N_EPOCHS = 50
+N_EPOCHS = 30
 ROOT_PATH = "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_features/"
 LATE_NORMALIZE = True
 MAXIMIZE_METRIC = True
@@ -23,9 +23,9 @@ CONFIG = {
     "seed": 1243,
     "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_metadata_extended_noduplv1.csv",
     "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/birdclef_2024_5_folds_split_nodupl.npy",
-    "exp_name": "convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch50_FocalLoss_Full_NoDuplsV1",
+    "exp_name": "tf_efficientnetv2_b1_in1k_Exp_noamp_64bs_5sec_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV1_BCELoss_5Folds_NoDuplsV1",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
-    "folds": None,
+    "folds": [0, 1, 2, 3, 4],
     "train_function": lightning_training,
     "train_function_args": {
         "train_dataset_class": WaveDataset,
@@ -82,7 +82,7 @@ CONFIG = {
         },
         "nn_model_class": WaveCNNAttenClasifier,
         "nn_model_config": dict(
-            backbone="convnextv2_tiny.fcmae_ft_in22k_in1k_384",
+            backbone="tf_efficientnetv2_b1.in1k",
             mel_spec_paramms={
                 "sample_rate": 32000,
                 "n_mels": 128,
@@ -91,20 +91,20 @@ CONFIG = {
                 "hop_length": 512,
                 "normalized": True,
             },
-            # spec_augment_config={
-            #     "freq_mask": {
-            #         "mask_max_length": 10,
-            #         "mask_max_masks": 3,
-            #         "p": 0.3,
-            #         "inplace": True,
-            #     },
-            #     "time_mask": {
-            #         "mask_max_length": 20,
-            #         "mask_max_masks": 3,
-            #         "p": 0.3,
-            #         "inplace": True,
-            #     },
-            # },
+            spec_augment_config={
+                "freq_mask": {
+                    "mask_max_length": 10,
+                    "mask_max_masks": 3,
+                    "p": 0.3,
+                    "inplace": True,
+                },
+                "time_mask": {
+                    "mask_max_length": 20,
+                    "mask_max_masks": 3,
+                    "p": 0.3,
+                    "inplace": True,
+                },
+            },
             head_config={
                 "p": 0.5,
                 "num_class": 188,
@@ -113,9 +113,9 @@ CONFIG = {
             },
             exportable=True,
         ),
-        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-4),
+        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-3),
         "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=N_EPOCHS*len_train, T_mult=1, eta_min=1e-6, last_epoch=-1
+            optimizer, T_0=int((N_EPOCHS*len_train) * 1.1), T_mult=1, eta_min=1e-6, last_epoch=-1
         ),
         "scheduler_params": {"interval": "step", "monitor": MAIN_METRIC},
         "forward": lambda: MultilabelClsForwardLongShort(
@@ -124,7 +124,7 @@ CONFIG = {
             batch_aug=RandomFiltering(
                 min_db=-20, is_wave=True, normalize_wave=LATE_NORMALIZE
             ),
-            use_focal_loss=True,
+            use_focal_loss=False,
         ),
         "callbacks": lambda: [
             ROC_AUC_Score(
@@ -159,4 +159,3 @@ CONFIG = {
         "use_sampler": True,
     },
 }
-

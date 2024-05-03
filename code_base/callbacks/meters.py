@@ -6,7 +6,6 @@ import numpy as np
 import torch
 from lightning.pytorch.callbacks import Callback
 from pytorch_toolbelt.utils import all_gather, broadcast_from_master, is_main_process
-
 from ..utils import groupby_np_array, score_numpy, stack_and_max_by_samples
 
 

@@ -596,6 +596,20 @@ humanfriendly = ">=9.1"
 cron = ["capturer (>=2.4)"]
 
 [[package]]
+name = "colorednoise"
+version = "2.2.0"
+description = "Generate Gaussian (1/f)**beta noise (e.g. pink noise)"
+optional = false
+python-versions = ">=3"
+files = [
+    {file = "colorednoise-2.2.0-py3-none-any.whl", hash = "sha256:7a39faab851889bd742668d3ba1502eec6a72008d6e004bd8fa6313355c7b487"},
+    {file = "colorednoise-2.2.0.tar.gz", hash = "sha256:6ffe0ab1baf3355df28cde497d0affb0fb0ef1cd0a0c41302e0d7e7814c187b6"},
+]
+
+[package.dependencies]
+numpy = ">=1.17.0"
+
+[[package]]
 name = "comm"
 version = "0.2.2"
 description = "Jupyter Python Comm implementation, for usage in ipykernel, xeus-python etc."
@@ -4985,4 +4999,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "78b31873d1c1c82d2b1587e2cdb9e9644475e95a2c69224451dcdaaf804aaf06"
+content-hash = "9d110a594d439c6ce8f75cfb80437f8b765a120fa7a2d30189deb1b45857acc6"

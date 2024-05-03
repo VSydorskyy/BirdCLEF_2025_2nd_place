@@ -13,6 +13,7 @@ except:
     print("colorednoise package is missing")
 
 from ..utils import parallel_librosa_load
+from ..utils.audio_utils import get_librosa_load
 
 
 class Compose:
@@ -265,15 +266,21 @@ class BackgroundNoise(AudioTransform):
         min_level=0.25,
         max_level=0.75,
         sr=32000,
+        load_normalize=True,
         normalize=True,
+        normalize_chunks=False,
         verbose=False,
         glob_recursive=False,
         debug=False,
+        precompute=True,
     ):
         super().__init__(always_apply, p)
         assert min_level < max_level
         assert 0 < min_level < 1
         assert 0 < max_level < 1
+        self.precompute = precompute
+        self.sr = sr
+        self.load_normalize = load_normalize
         if background_regex is None and (esc50_root is None or esc50_df_path is None):
             raise ValueError("background_regex OR esc50_root AND esc50_df_path should be defined")
         if background_regex is not None:
@@ -285,13 +292,16 @@ class BackgroundNoise(AudioTransform):
             sample_names = [pjoin(esc50_root, el) for el in sample_df.filename.tolist()]
         if debug:
             sample_names = sample_names[:10]
-        self.samples = parallel_librosa_load(
-            sample_names,
-            return_sr=False,
-            sr=sr,
-            do_normalize=True,
-        )
+        self.sample_names = sample_names
+        if self.precompute:
+            self.samples = parallel_librosa_load(
+                sample_names,
+                return_sr=False,
+                sr=sr,
+                do_normalize=load_normalize,
+            )
         self.normalize = normalize
+        self.normalize_chunks = normalize_chunks
         self.min_max_levels = (min_level, max_level)
         self.verbose = verbose
 
@@ -305,7 +315,14 @@ class BackgroundNoise(AudioTransform):
         sample = None
         attempts = 0
         while sample is None:
-            sample = self.samples[np.random.randint(len(self.samples))]
+            if self.precompute:
+                sample = self.samples[np.random.randint(len(self.samples))]
+            else:
+                sample_name = self.sample_names[np.random.randint(len(self.sample_names))] 
+                sample, _ = get_librosa_load(
+                    do_normalize=self.load_normalize,
+                    sr=self.sr,
+                )(sample_name)
             attempts += 1
             if attempts > 1:
                 print("BackgroundNoise failed with one sample. Trying another. Attempt: ", attempts)
@@ -324,6 +341,8 @@ class BackgroundNoise(AudioTransform):
     def apply(self, y: np.ndarray, **params):
         back_sample = self._pick_random_valid_sample()
         back_sample = self._pad_or_crop_sample(back_sample, y.shape[0])
+        if self.normalize_chunks:
+            back_sample = librosa.util.normalize(back_sample)
         back_amp = np.random.uniform(*self.min_max_levels)
         if self.verbose:
             print(f"BackgroundNoise. back_amp: {back_amp}")

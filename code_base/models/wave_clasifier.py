@@ -22,7 +22,9 @@ except:
 
 from ..augmentations.spec_augment import CustomFreqMasking, CustomTimeMasking
 from .blocks import (
+    AttnBlock,
     AttHead,
+    AttHeadSimplified,
     Clasifier,
     NormalizeMelSpec,
     PoolingLayer,
@@ -197,6 +199,8 @@ class WaveCNNAttenClasifier(nn.Module):
         permute_backbone_emb: Optional[Tuple[int]] = None,
         no_head_inference_mode: bool = False,
         spec_augment_config: Optional[Dict[str, Any]] = None,
+        atten_smoothing_config: Optional[Dict[str, Any]] = None,
+        spec_resize: Optional[Tuple[int, int]] = None,
     ):
         super().__init__()
         add_backbone_config_ = deepcopy(add_backbone_config)
@@ -214,6 +218,7 @@ class WaveCNNAttenClasifier(nn.Module):
         self.logmelspec_extractor = self._create_feature_extractor(
             mel_spec_paramms_, exportable, top_db, quantizable, spec_extractor
         )
+        self.spec_resize = spec_resize
         if spec_augment_config is not None:
             self.spec_augment = []
             if "freq_mask" in spec_augment_config:
@@ -259,6 +264,19 @@ class WaveCNNAttenClasifier(nn.Module):
                     "stride",
                     first_conv_stride_overwrite,
                 )
+
+        self.atten_smoothing_config = atten_smoothing_config
+        if atten_smoothing_config is not None:
+            self.atten_smoothing = nn.Sequential(
+                *[
+                    AttnBlock(
+                        embed_dim=self.backbone.feature_info.channels()[-1], dropout=atten_smoothing_config["dropout"]
+                    )
+                    for _ in range(atten_smoothing_config["num_layers"])
+                ]
+            )
+            self.attn_pe = nn.Embedding(atten_smoothing_config["n_steps"], self.backbone.feature_info.channels()[-1])
+
         if head_config_ is not None and not self.transformer_backbone:
             if head_type == "AttHead":
                 backbone_channels = self.backbone.feature_info.channels()
@@ -284,6 +302,12 @@ class WaveCNNAttenClasifier(nn.Module):
                         ],
                         **head_config_,
                     ),
+                )
+            elif head_type == "AttHeadSimplified":
+                self.head = AttHeadSimplified(
+                    in_chans=self.backbone.feature_info.channels()[-1],
+                    exportable=exportable,
+                    **head_config_,
                 )
             else:
                 raise NotImplementedError(f"{head_type} not implemented")
@@ -372,6 +396,10 @@ class WaveCNNAttenClasifier(nn.Module):
             spec = self.logmelspec_extractor(input)[:, None]
         if self.spec_augment is not None and self.training:
             spec = self.spec_augment(spec)
+        if self.spec_resize is not None:
+            spec = nn.functional.interpolate(
+                spec, size=self.spec_resize, mode="bilinear"
+            )
         if not self.quantizable and return_spec_feature:
             return spec
         if self.deep_supervision_steps is not None:
@@ -382,6 +410,14 @@ class WaveCNNAttenClasifier(nn.Module):
             emb = self.backbone(spec)[-1]
         if self.permute_backbone_emb is not None:
             emb = emb.permute(*self.permute_backbone_emb)
+        # import ipdb; ipdb.set_trace()
+        if self.atten_smoothing_config is not None:
+            B, C, H, W = emb.size()
+            emb = emb.reshape(B, C, H * W)
+            emb = emb.permute(0, 2, 1)
+            pos = torch.arange(0, emb.size(1), dtype=torch.long, device=emb.device)
+            pos_emb = self.attn_pe(pos)
+            emb = self.atten_smoothing(emb + pos_emb)
         if not self.quantizable and return_cnn_emb:
             return emb
         if self.head is not None:

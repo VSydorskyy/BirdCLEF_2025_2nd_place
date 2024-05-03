@@ -10,7 +10,7 @@ from code_base.train_functions.train_lightning import lightning_training
 
 B_S = 64
 TRAIN_PERIOD = 5.0
-N_EPOCHS = 50
+N_EPOCHS = 30
 ROOT_PATH = "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_features/"
 LATE_NORMALIZE = True
 MAXIMIZE_METRIC = True
@@ -23,7 +23,7 @@ CONFIG = {
     "seed": 1243,
     "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_metadata_extended_noduplv1.csv",
     "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/birdclef_2024_5_folds_split_nodupl.npy",
-    "exp_name": "convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch50_FocalLoss_Full_NoDuplsV1",
+    "exp_name": "maxvit_rmlp_pico_rw_256_sw_in1k_Exp_FullAtten_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr3e4_CosBatchLR1e6_Epoch30_SpecAugV1_FocalLoss_Full_NoDuplsV1",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
     "folds": None,
     "train_function": lightning_training,
@@ -43,14 +43,25 @@ CONFIG = {
             "use_sampler": True,
             "shuffle": True,
             "use_h5py": True,
+            "add_df_paths": [
+                "/home/vova/data/exps/birdclef_2024/dfs/full_noduplsV3_scored_meta_prev_comps_extended_2024SecLabels.csv",
+                "/home/vova/data/exps/birdclef_2024/xeno_canto/dataset_2024_classes/train_metadata_noduplV3_extended_2024SecLabels.csv"
+            ],
+            "filename_change_mapping": {
+                "base": "birdclef_2024/train_features/",
+                "comp_2021":"birdclef_2021/train_features/",
+                "comp_2023":"birdclef_2023/train_features/",
+                "comp_2022":"birdclef_2022/train_features/",
+                "comp_2020":"birdsong_recognition/train_features/",
+                "a_m_2020": "xeno_canto_bird_recordings_extended_a_m/train_features/",
+                "n_z_2020": "xeno_canto_bird_recordings_extended_n_z/train_features/",
+                "xc_2024_classes": "xeno_canto/dataset_2024_classes/train_features/"
+            },
             "late_aug": BackgroundNoise(
                 p=0.5,
                 esc50_root="/home/vova/data/exps/birdclef_2024/my_2023_data/soundscapes_nocall/train_audio",
-                esc50_df_path="/home/vova/data/exps/birdclef_2024/my_2023_data/soundscapes_nocall/v1_no_call_meta_fixed.csv",
-                normalize=True,
-                normalize_chunks=True,
-                load_normalize=True,
-                precompute=False,
+                esc50_df_path="/home/vova/data/exps/birdclef_2024/my_2023_data/soundscapes_nocall/v1_no_call_meta.csv",
+                normalize=LATE_NORMALIZE,
             ),
         },
         
@@ -82,7 +93,7 @@ CONFIG = {
         },
         "nn_model_class": WaveCNNAttenClasifier,
         "nn_model_config": dict(
-            backbone="convnextv2_tiny.fcmae_ft_in22k_in1k_384",
+            backbone="maxvit_rmlp_pico_rw_256.sw_in1k",
             mel_spec_paramms={
                 "sample_rate": 32000,
                 "n_mels": 128,
@@ -91,29 +102,35 @@ CONFIG = {
                 "hop_length": 512,
                 "normalized": True,
             },
-            # spec_augment_config={
-            #     "freq_mask": {
-            #         "mask_max_length": 10,
-            #         "mask_max_masks": 3,
-            #         "p": 0.3,
-            #         "inplace": True,
-            #     },
-            #     "time_mask": {
-            #         "mask_max_length": 20,
-            #         "mask_max_masks": 3,
-            #         "p": 0.3,
-            #         "inplace": True,
-            #     },
-            # },
+            spec_resize=(256,256),
+            spec_augment_config={
+                "freq_mask": {
+                    "mask_max_length": 10,
+                    "mask_max_masks": 3,
+                    "p": 0.3,
+                    "inplace": True,
+                },
+                "time_mask": {
+                    "mask_max_length": 20,
+                    "mask_max_masks": 3,
+                    "p": 0.3,
+                    "inplace": True,
+                },
+            },
+            atten_smoothing_config={
+                "dropout": 0.1,
+                "num_layers": 1,
+                "n_steps": 64,
+            },
+            head_type="AttHeadSimplified",
             head_config={
                 "p": 0.5,
                 "num_class": 188,
-                "train_period": TRAIN_PERIOD,
-                "infer_period": TRAIN_PERIOD,
+                "omit_pooling": True,
             },
             exportable=True,
         ),
-        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-4),
+        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=3e-4),
         "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
             optimizer, T_0=N_EPOCHS*len_train, T_mult=1, eta_min=1e-6, last_epoch=-1
         ),
@@ -155,8 +172,7 @@ CONFIG = {
         "debug": DEBUG,
 
         "label_str2int_path": PATH_TO_JSON_MAPPING,
-        "class_weights_path": "sqrt",
+        "class_weights_path": "/home/vova/data/exps/birdclef_2024/sample_weights/sw_2024_add_data_v1.json",
         "use_sampler": True,
     },
 }
-

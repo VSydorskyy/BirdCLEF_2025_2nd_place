@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 from ..augmentations.transforms import BackgroundNoise
 from ..utils import load_json, load_pp_audio, parallel_librosa_load
+from ..utils.main_utils import sample_uniformly_np_index
 
 DEFAULT_TARGET = 0
 EPS = 1e-5
@@ -32,6 +33,8 @@ class WaveDataset(torch.utils.data.Dataset):
         target_col="primary_label",
         sec_target_col="secondary_labels",
         name_col="filename",
+        timewise_col=None,
+        timewise_slice_pad=2.5,
         rating_col=None,
         sample_rate=32_000,
         segment_len=5.0,
@@ -52,12 +55,20 @@ class WaveDataset(torch.utils.data.Dataset):
         sampler_col=None,
         use_h5py=False,
         empty_soundscape_config=None,
+        soundscape_pseudo_df_path=None,
+        start_from_zero=False,
     ):
         super().__init__()
+        assert timewise_slice_pad < segment_len
+        if timewise_col is not None and not use_h5py:
+            raise ValueError("timewise_col can be used only with h5py")
         if use_h5py and precompute:
             raise ValueError("h5py files can not be used with `precompute`")
         if df is None and add_df_paths is None:
             raise ValueError("`df` OR/AND `add_df_paths` should be defined")
+        if soundscape_pseudo_df_path is not None and not use_h5py:
+            raise ValueError("Soundscape pseudo df can be used only with h5py")
+        df["dataset"] = "base"
         if add_df_paths is not None:
             cols_to_take = [
                 target_col,
@@ -72,8 +83,9 @@ class WaveDataset(torch.utils.data.Dataset):
                 cols_to_take.append(rating_col)
             if sampler_col is not None and sampler_col not in cols_to_take:
                 cols_to_take.append(sampler_col)
+            if timewise_col is not None and timewise_col not in cols_to_take:
+                cols_to_take.append(timewise_col)
             # Create fake `df`
-            df["dataset"] = "base"
             if df is None:
                 df = pd.DataFrame()
             else:
@@ -83,6 +95,12 @@ class WaveDataset(torch.utils.data.Dataset):
                 axis=0,
             ).reset_index(drop=True)
             df = pd.concat([df, add_merged_df], axis=0).reset_index(drop=True)
+        if soundscape_pseudo_df_path is not None:
+            soundscape_pseudo_df = pd.read_csv(soundscape_pseudo_df_path)
+            if "dataset" not in soundscape_pseudo_df.columns:
+                soundscape_pseudo_df["dataset"] = "soundscape"
+            soundscape_pseudo_df["final_second"] = soundscape_pseudo_df["row_id"].apply(lambda x: int(x.split("_")[-1]))
+            df = pd.concat([df, soundscape_pseudo_df], axis=0).reset_index(drop=True)
         if df_filter_rule is not None:
             df = df_filter_rule(df)
         if debug:
@@ -98,6 +116,8 @@ class WaveDataset(torch.utils.data.Dataset):
             self.df["secondary_labels"] = self.df["secondary_labels"].apply(eval)
         except:
             print("secondary_labels is not found in df. Maybe test or nocall mode")
+        if timewise_col is not None:
+            self.df[timewise_col] = self.df[timewise_col].apply(eval)
         if shuffle:
             self.df = self.df.sample(frac=1).reset_index(drop=True)
 
@@ -116,6 +136,7 @@ class WaveDataset(torch.utils.data.Dataset):
 
         self.target_col = target_col
         self.sec_target_col = sec_target_col
+        self.timewise_col = timewise_col
         self.name_col = f"{name_col}_with_root"
         self.rating_col = rating_col
         self.late_normalize = late_normalize
@@ -130,6 +151,8 @@ class WaveDataset(torch.utils.data.Dataset):
         self.do_noisereduce = do_noisereduce
         # save segment len in points (not in seconds)
         self.segment_len = int(self.sample_rate * segment_len)
+        self.start_from_zero = start_from_zero
+        self.timewise_slice_pad = timewise_slice_pad
 
         self.early_aug = early_aug
         self.late_aug = late_aug
@@ -194,12 +217,47 @@ class WaveDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.df)
 
-    def _prepare_sample_piece(self, input):
+    def _prepare_sample_piece(self, input, end_second=None, sample_slices=None):
+        if sample_slices is not None:
+            if input.shape[0] < self.segment_len:
+                pad_len = self.segment_len - input.shape[0]
+                assert len(sample_slices) == 1
+                return (
+                    np.pad(np.array(input) if self.use_h5py else input, ((pad_len, 0))),
+                    0,
+                )
+            sample_slices_padded = [
+                [
+                    int((el[0] - self.timewise_slice_pad) * self.sample_rate),
+                    int((el[1] + self.timewise_slice_pad) * self.sample_rate)
+                ] for el in sample_slices
+            ]
+            sample_slices_padded[0][0] = max(0, sample_slices_padded[0][0])
+            sample_slices_padded[-1][1] = min(input.shape[0] - self.segment_len, sample_slices_padded[-1][1])
+            if sample_slices_padded[-1][1] - sample_slices_padded[-1][0] < 1:
+                if len(sample_slices_padded) > 1:
+                    sample_slices_padded.pop()
+                else:
+                    sample_slices_padded[0][1] = sample_slices_padded[0][0] + 1
+            # print("Padded sample slices", sample_slices_padded)
+            start, chunk_idx = sample_uniformly_np_index(sample_slices_padded)
+            cutted_slice = np.array(input[start : start + self.segment_len]) if self.use_h5py else input[start : start + self.segment_len]
+            # print("Picked start", start)
+            if cutted_slice.shape[0] < self.segment_len:
+                pad_len = self.segment_len - cutted_slice.shape[0]
+                cutted_slice =  np.pad(np.array(cutted_slice), ((pad_len, 0)))
+            return cutted_slice, chunk_idx
+        if end_second is not None:
+            end = int(end_second * self.sample_rate)
+            input = np.array(input[end-self.segment_len:end]) if self.use_h5py else input[end-self.segment_len:end]
         if input.shape[0] < self.segment_len:
             pad_len = self.segment_len - input.shape[0]
             return np.pad(np.array(input) if self.use_h5py else input, ((pad_len, 0)))
         elif input.shape[0] > self.segment_len:
-            start = np.random.randint(0, input.shape[0] - self.segment_len)
+            if self.start_from_zero:
+                start = 0
+            else:
+                start = np.random.randint(0, input.shape[0] - self.segment_len)
             return (
                 np.array(input[start : start + self.segment_len])
                 if self.use_h5py
@@ -213,7 +271,8 @@ class WaveDataset(torch.utils.data.Dataset):
             if all_labels == "nocall":
                 return torch.zeros(len(self.label_str2int)).float()
             else:
-                all_tgt = [self.label_str2int[el] for el in all_labels.split()]
+                all_labels = all_labels.split() if isinstance(all_labels, str) else all_labels
+                all_tgt = [self.label_str2int[el] for el in all_labels]
         else:
             if main_tgt == "nocall":
                 all_tgt = []
@@ -227,39 +286,64 @@ class WaveDataset(torch.utils.data.Dataset):
         if self.empty_soundscape_config is not None and np.random.binomial(1, self.empty_soundscape_config["prob"]):
             wave = self.empty_sampler.sample(sample_length=self.segment_len)
             target = torch.zeros(len(self.label_str2int)).float()
-            return wave, target
-        if self.use_h5py:
-            with h5py.File(self.df[self.name_col].iloc[idx], "r") as f:
-                wave = self._prepare_sample_piece(f["au"])
         else:
-            if self.precompute:
-                wave = self.audio_cache[idx]
+            if self.use_h5py:
+                with h5py.File(self.df[self.name_col].iloc[idx], "r") as f:
+                    # Very messy but let it be
+                    if self.df["dataset"].iloc[idx] is not None and self.df["dataset"].iloc[idx].startswith("soundscape"):
+                        end_second = self.df["final_second"].iloc[idx]
+                    else:
+                        end_second = None
+                    if self.timewise_col is not None:
+                        sample_slices = self.df[self.timewise_col].iloc[idx]
+                        # print("Input sample slices", sample_slices)
+                        wave, chunk_idx = self._prepare_sample_piece(
+                            f["au"],
+                            end_second=end_second,
+                            sample_slices=sample_slices,
+                        )
+                    else:
+                        sample_slices = None
+                        wave = self._prepare_sample_piece(
+                            f["au"],
+                            end_second=end_second,
+                        )
             else:
-                # Extract only audio, without sample_rate
-                wave = load_pp_audio(
-                    self.df[self.name_col].iloc[idx],
-                    sr=self.sample_rate,
-                    do_noisereduce=self.do_noisereduce,
-                    normalize=not self.late_normalize,
-                    res_type=self.res_type,
-                    pos_dtype=self.pos_dtype,
+                if self.precompute:
+                    wave = self.audio_cache[idx]
+                else:
+                    # Extract only audio, without sample_rate
+                    wave = load_pp_audio(
+                        self.df[self.name_col].iloc[idx],
+                        sr=self.sample_rate,
+                        do_noisereduce=self.do_noisereduce,
+                        normalize=not self.late_normalize,
+                        res_type=self.res_type,
+                        pos_dtype=self.pos_dtype,
+                    )
+
+                if self.pos_dtype is not None:
+                    wave = wave.astype(np.float32)
+
+                wave = self._prepare_sample_piece(wave)
+
+            main_tgt = self.df[self.target_col].iloc[idx]
+            if self.sec_target_col is not None:
+                sec_tgt = self.df[self.sec_target_col].iloc[idx]
+            else:
+                sec_tgt = [""]
+            if self.timewise_col is not None:
+                # print("Chunk", self.df[self.timewise_col].iloc[idx][chunk_idx])
+                target = self._prepare_target(
+                    main_tgt, sec_tgt, 
+                    all_labels=self.df[self.timewise_col].iloc[idx][chunk_idx][-1]
                 )
-
-            if self.pos_dtype is not None:
-                wave = wave.astype(np.float32)
-
-            wave = self._prepare_sample_piece(wave)
-
-        main_tgt = self.df[self.target_col].iloc[idx]
-        if self.sec_target_col is not None:
-            sec_tgt = self.df[self.sec_target_col].iloc[idx]
-        else:
-            sec_tgt = [""]
-        target = self._prepare_target(main_tgt, sec_tgt)
-        if self.rating_col is not None:
-            rating = self.df[self.rating_col].iloc[idx] / MAX_RATING
-            assert 0.0 <= rating <= 1.0
-            target = (target * rating).float()
+            else:
+                target = self._prepare_target(main_tgt, sec_tgt)
+            if self.rating_col is not None:
+                rating = self.df[self.rating_col].iloc[idx] / MAX_RATING
+                assert 0.0 <= rating <= 1.0
+                target = (target * rating).float()
 
         if self.early_aug is not None:
             raise RuntimeError("Not implemented")
@@ -330,6 +414,8 @@ class WaveDataset(torch.utils.data.Dataset):
 
         if self.late_aug is not None:
             wave = self.late_aug(wave)
+            if self.late_normalize:
+                wave = librosa.util.normalize(wave)
 
         return wave, target
 
@@ -368,7 +454,7 @@ class WaveAllFileDataset(WaveDataset):
         use_eps_in_slicing=False,
         dfidx_2_sample_id=False,
         do_noisereduce=False,
-        load_normalize=True,
+        load_normalize=False,
         late_normalize=False,
         use_h5py=False,
         # In BirdClef Comp, it is claimed that all samples in 32K sr

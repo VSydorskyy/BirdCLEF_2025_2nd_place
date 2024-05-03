@@ -2,6 +2,7 @@ import os
 from pprint import pprint
 from time import time
 from typing import Callable, Dict, List, Optional, Union
+from itertools import chain
 
 import lightning as L
 import numpy as np
@@ -138,12 +139,15 @@ class LitTrainer(L.LightningModule):
         return self._aggregate_outputs(losses, inputs, outputs)
 
     def configure_optimizers(self):
-        scheduler = {"scheduler": self._scheduler}
-        scheduler.update(self._scheduler_params)
-        return (
-            [self._optimizer],
-            [scheduler],
-        )
+        if self._scheduler is None:
+            return [self._optimizer]
+        else:
+            scheduler = {"scheduler": self._scheduler}
+            scheduler.update(self._scheduler_params)
+            return (
+                [self._optimizer],
+                [scheduler],
+            )
 
 
 def worker_init_fn(worker_id):
@@ -183,9 +187,11 @@ def lightning_training(
     debug: bool = False,
     check_exp_exists: bool = False,
     train_strategy: str = "auto",
-    add_train_dataset_class: Optional[Union[torch.utils.data.Dataset, List[torch.utils.data.Dataset]]] = None,
-    add_train_dataset_config: Optional[Union[dict, List[dict]]] = None,
-    add_train_dataset_df_path: Optional[Union[Optional[str], List[Optional[str]]]] = None,
+
+    nocall_dataset_class: Optional[torch.utils.data.Dataset] = None,
+    nocall_dataset_config: Optional[dict] = None,
+    nocall_dataset_df_path: Optional[str] = None,
+
     device_outside_model: bool = False,
     pretrain_config: Optional[dict] = None,
     class_weights_path: Optional[str] = None,
@@ -216,45 +222,39 @@ def lightning_training(
         df=train_df,
         **train_dataset_config,
     )
+    is_concat_dataset = False
+
+    if nocall_dataset_class is not None and nocall_dataset_config is not None and nocall_dataset_df_path is not None:
+        nocall_df = pd.read_csv(nocall_dataset_df_path)
+        nocall_dataset = nocall_dataset_class(
+            df=nocall_df,
+            **nocall_dataset_config,
+        )
+        train_dataset = torch.utils.data.ConcatDataset([train_dataset, nocall_dataset])
+        is_concat_dataset = True
+
 
     if use_class_weights:
-        class_weights = load_json(class_weights_path)
+        if class_weights_path == "sqrt":
+            labels = pd.Series(train_dataset.targets)
+            class_weights = (labels.value_counts() / labels.value_counts().sum())  ** (-0.5)
+            class_weights = class_weights.to_dict()
+        else:
+            class_weights = load_json(class_weights_path)
         print("Using next class weights:")
         pprint(class_weights)
     if use_class_weights and use_sampler:
-        sample_weights = np.array([class_weights[el] for el in train_dataset.targets])
+        if is_concat_dataset:
+            sample_weights = np.array([
+                class_weights[el] for el in list(chain(*[ds.targets for ds in train_dataset.datasets]))
+            ])
+        else:
+            sample_weights = np.array([class_weights[el] for el in train_dataset.targets])
         assert len(sample_weights) == len(train_dataset)
         sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights))
         print("Sampler Created")
     else:
         sampler = None
-
-    if add_train_dataset_class is not None and add_train_dataset_config is not None:
-        if isinstance(add_train_dataset_class, list) and isinstance(add_train_dataset_config, list):
-            assert len(add_train_dataset_class) == len(add_train_dataset_config) == len(add_train_dataset_df_path)
-            print("Using additional train datasetS")
-            train_dataset = [train_dataset]
-            for add_train_dataset_class_solo, add_train_dataset_config_solo, add_train_dataset_df_path_solo in zip(
-                add_train_dataset_class, add_train_dataset_config, add_train_dataset_df_path
-            ):
-                add_tain_df_solo = (
-                    train_df if add_train_dataset_df_path_solo is None else pd.read_csv(add_train_dataset_df_path_solo)
-                )
-                train_dataset.append(
-                    add_train_dataset_class_solo(
-                        df=add_tain_df_solo,
-                        **add_train_dataset_config_solo,
-                    )
-                )
-            train_dataset = torch.utils.data.ConcatDataset(train_dataset)
-        else:
-            print("Using additional train dataset")
-            add_tain_df = train_df if add_train_dataset_df_path is None else pd.read_csv(add_train_dataset_df_path)
-            add_train_dataset = add_train_dataset_class(
-                df=add_tain_df,
-                **add_train_dataset_config,
-            )
-            train_dataset = torch.utils.data.ConcatDataset([train_dataset, add_train_dataset])
 
     loaders = {
         "train": torch.utils.data.DataLoader(
@@ -286,27 +286,15 @@ def lightning_training(
         print("Missing keys: ", set(model.state_dict().keys()) - set(pretrain_checkpoint))
         print("Extra keys: ", set(pretrain_checkpoint) - set(model.state_dict().keys()))
         model.load_state_dict(pretrain_checkpoint, strict=False)
-    # if pretrain_checkpoint_path is not None:
-    #     pretrain_checkpoint = torch.load(pretrain_checkpoint_path, map_location="cpu")
-
-    #     if not strict_pretrain:
-    #         keys_to_remove = []
-    #         for key in pretrain_checkpoint.keys():
-    #             if model.state_dict()[key].shape != pretrain_checkpoint[key].shape:
-    #                 keys_to_remove.append(key)
-
-    #         print("Keys to remove from pretrain checkpoint:", keys_to_remove)
-
-    #         for key in keys_to_remove:
-    #             del pretrain_checkpoint[key]
-
-    #     model.load_state_dict(pretrain_checkpoint, strict=strict_pretrain)
 
     for k in loaders.keys():
         print(f"{k} Loader Len = {len(loaders[k])}")
 
     optimizer = optimizer_init(model)
-    scheduler = scheduler_init(optimizer, len(loaders["train"]))
+    if scheduler_init is not None:
+        scheduler = scheduler_init(optimizer, len(loaders["train"]))
+    else:
+        scheduler = None
 
     if not isinstance(forward, torch.nn.Module):
         forward = forward()

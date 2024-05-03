@@ -14,12 +14,15 @@ from torchaudio.transforms import Resample
 from code_base.utils.main_utils import ProgressParallel, load_json
 
 
-def create_target_path(target_root, source_path):
+def create_target_path(target_root, source_path, add_class_folder_to_path=True):
     splitted_source_path = source_path.split("/")
     filename = splitext(splitted_source_path[-1])[0]
-    target_path = pjoin(
-        target_root, splitted_source_path[-2], filename + ".hdf5"
-    )
+    if add_class_folder_to_path:
+        target_path = pjoin(
+            target_root, splitted_source_path[-2], filename + ".hdf5"
+        )
+    else:
+        target_path = pjoin(target_root, filename + ".hdf5")
     return target_path
 
 
@@ -37,6 +40,8 @@ def get_load_librosa_save_h5py(do_normalize, **kwargs):
                         sr = kwargs["sr"]
                     au = au[0].numpy()
                 else:
+                    if "use_torchaudio" in kwargs:
+                        kwargs.pop("use_torchaudio")
                     au, sr = librosa.load(load_path, **kwargs)
                 if do_normalize:
                     au = librosa.util.normalize(au)
@@ -92,13 +97,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
     print(f"Received args: {args}")
 
+    add_class_folder_to_path = True
     if args.au_path.endswith(".json"):
         all_aus = load_json(args.au_path)
     else:
         all_aus = glob(pjoin(args.au_path, "*", "*"))
+    if len(all_aus) == 0:
+        all_aus = glob(pjoin(args.au_path, "*"))
+        add_class_folder_to_path = False
     print(f"Found {len(all_aus)} files")
 
-    all_targets = [create_target_path(args.save_path, el) for el in all_aus]
+    all_targets = [create_target_path(args.save_path, el, add_class_folder_to_path=add_class_folder_to_path) for el in all_aus]
 
     os.makedirs(args.save_path, exist_ok=True)
     for el in set([os.path.dirname(el) for el in all_targets]):
@@ -115,7 +124,10 @@ if __name__ == "__main__":
         for load_path, save_path in zip(all_aus, all_targets)
     )
 
-    saved_targets = glob(pjoin(args.save_path, "*", "*.hdf5"))
+    if add_class_folder_to_path:
+        saved_targets = glob(pjoin(args.save_path, "*", "*.hdf5"))
+    else:
+        saved_targets = glob(pjoin(args.save_path, "*.hdf5"))
     print(f"Saved {len(saved_targets)} files")
 
     print("Done!")
