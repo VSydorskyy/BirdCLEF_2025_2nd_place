@@ -80,6 +80,15 @@ class NoiseInjection(AudioTransform):
         return augmented
 
 
+class TimeFlip(AudioTransform):
+    def __init__(self, always_apply=False, p=0.5):
+        super().__init__(always_apply, p)
+
+    def apply(self, y: np.ndarray):
+        # Reverse the audio signal
+        return y[::-1].copy()
+
+
 class GaussianNoise(AudioTransform):
     def __init__(
         self,
@@ -273,6 +282,7 @@ class BackgroundNoise(AudioTransform):
         glob_recursive=False,
         debug=False,
         precompute=True,
+        chunks_column=None,
     ):
         super().__init__(always_apply, p)
         assert min_level < max_level
@@ -289,6 +299,10 @@ class BackgroundNoise(AudioTransform):
             sample_df = pd.read_csv(esc50_df_path)
             if esc50_cats_to_include is not None:
                 sample_df = sample_df[sample_df.category.isin(esc50_cats_to_include)]
+            if chunks_column is not None:
+                self.chunks = sample_df[chunks_column].apply(eval).tolist()
+            else:
+                self.chunks = None
             sample_names = [pjoin(esc50_root, el) for el in sample_df.filename.tolist()]
         if debug:
             sample_names = sample_names[:10]
@@ -305,8 +319,23 @@ class BackgroundNoise(AudioTransform):
         self.min_max_levels = (min_level, max_level)
         self.verbose = verbose
 
-    @staticmethod
-    def crop_sample(sample, crop_shape):
+    def crop_sample(self, sample, crop_shape, sample_id=None):
+        # Very dirty implementation. Should be refactored
+        if sample_id is not None and self.chunks is not None:
+            random_chunk_id = np.random.randint(len(self.chunks[sample_id]))
+            start, end = self.chunks[sample_id][random_chunk_id]
+            if self.verbose:
+                print("Picked start and end", start, end)
+            sample = sample[int(start * self.sr) : int(end * self.sr)]
+            if sample.shape[0] > crop_shape:
+                sample = self.crop_sample(sample, crop_shape)
+            elif sample.shape[0] < crop_shape:
+                repeat_times = math.ceil(crop_shape / sample.shape[0])
+                sample = np.concatenate([sample] * repeat_times)
+                if sample.shape[0] > crop_shape:
+                    sample = self.crop_sample(sample, crop_shape)
+            return sample
+
         start = np.random.randint(0, sample.shape[0] - crop_shape)
         return sample[start : start + crop_shape]
 
@@ -315,10 +344,11 @@ class BackgroundNoise(AudioTransform):
         sample = None
         attempts = 0
         while sample is None:
+            sample_id = np.random.randint(len(self.sample_names))
             if self.precompute:
-                sample = self.samples[np.random.randint(len(self.samples))]
+                sample = self.samples[sample_id]
             else:
-                sample_name = self.sample_names[np.random.randint(len(self.sample_names))] 
+                sample_name = self.sample_names[sample_id]
                 sample, _ = get_librosa_load(
                     do_normalize=self.load_normalize,
                     sr=self.sr,
@@ -326,11 +356,13 @@ class BackgroundNoise(AudioTransform):
             attempts += 1
             if attempts > 1:
                 print("BackgroundNoise failed with one sample. Trying another. Attempt: ", attempts)
-        return sample
+        if self.verbose:
+            print("Picked sample id: ", sample_id)
+        return sample, sample_id
 
-    def _pad_or_crop_sample(self, sample, target_length):
+    def _pad_or_crop_sample(self, sample, sample_id, target_length):
         if target_length < sample.shape[0]:
-            sample = self.crop_sample(sample, target_length)
+            sample = self.crop_sample(sample, target_length, sample_id)
         elif target_length > sample.shape[0]:
             repeat_times = math.ceil(target_length / sample.shape[0])
             sample = np.concatenate([sample] * repeat_times)
@@ -339,8 +371,8 @@ class BackgroundNoise(AudioTransform):
         return sample
 
     def apply(self, y: np.ndarray, **params):
-        back_sample = self._pick_random_valid_sample()
-        back_sample = self._pad_or_crop_sample(back_sample, y.shape[0])
+        back_sample, back_sample_id = self._pick_random_valid_sample()
+        back_sample = self._pad_or_crop_sample(back_sample, back_sample_id, y.shape[0])
         if self.normalize_chunks:
             back_sample = librosa.util.normalize(back_sample)
         back_amp = np.random.uniform(*self.min_max_levels)
@@ -353,8 +385,8 @@ class BackgroundNoise(AudioTransform):
         return augmented
 
     def sample(self, sample_length: int):
-        sample = self._pick_random_valid_sample()
-        sample = self._pad_or_crop_sample(sample, sample_length)
+        sample, sample_id = self._pick_random_valid_sample()
+        sample = self._pad_or_crop_sample(sample, sample_id, sample_length)
 
         if self.normalize:
             sample = librosa.util.normalize(sample)

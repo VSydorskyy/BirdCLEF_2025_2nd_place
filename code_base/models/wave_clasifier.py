@@ -2,10 +2,11 @@ from copy import deepcopy
 from importlib.util import spec_from_file_location
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import timm
 import torch
 import torch.nn as nn
-from torchaudio.transforms import AmplitudeToDB, MelSpectrogram
+from torchaudio.transforms import MelSpectrogram
 
 try:
     from speechbrain.lobes.models.ECAPA_TDNN import ECAPA_TDNN
@@ -21,11 +22,15 @@ except:
     print("`LEAF` was not imported")
 
 from ..augmentations.spec_augment import CustomFreqMasking, CustomTimeMasking
+from ..augmentations.spec_power_augment import RandomSpecPower
 from .blocks import (
-    AttnBlock,
+    AmplitudeToDB,
     AttHead,
     AttHeadSimplified,
+    AttnBlock,
+    ChannelAgnosticAmplitudeToDB,
     Clasifier,
+    GeMFreq,
     NormalizeMelSpec,
     PoolingLayer,
     QuantizableAmplitudeToDB,
@@ -65,9 +70,7 @@ class WaveCNNClasifier(nn.Module):
         self.logmelspec_extractor = self._create_feature_extractor(
             mel_spec_paramms, exportable, top_db, quantizable, spec_extractor
         )
-        add_backbone_config = (
-            {} if add_backbone_config is None else add_backbone_config
-        )
+        add_backbone_config = {} if add_backbone_config is None else add_backbone_config
         self.backbone = timm.create_model(
             backbone,
             features_only=True,
@@ -83,9 +86,7 @@ class WaveCNNClasifier(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.to(self.device)
 
-    def _create_feature_extractor(
-        self, mel_spec_paramms, exportable, top_db, quantizable, spec_extractor
-    ):
+    def _create_feature_extractor(self, mel_spec_paramms, exportable, top_db, quantizable, spec_extractor):
         if spec_extractor == "Melspec":
             if exportable:
                 spec_init = TraceableMelspec
@@ -100,12 +101,8 @@ class WaveCNNClasifier(nn.Module):
             return nn.ModuleList(
                 [
                     nn.Sequential(
-                        spec_init(**mel_spec_paramm, quantizable=True)
-                        if quantizable
-                        else spec_init(**mel_spec_paramm),
-                        QuantizableAmplitudeToDB(top_db=top_db)
-                        if quantizable
-                        else AmplitudeToDB(top_db=top_db),
+                        spec_init(**mel_spec_paramm, quantizable=True) if quantizable else spec_init(**mel_spec_paramm),
+                        QuantizableAmplitudeToDB(top_db=top_db) if quantizable else AmplitudeToDB(top_db=top_db),
                         NormalizeMelSpec(exportable=exportable),
                     )
                     for mel_spec_paramm in mel_spec_paramms
@@ -114,12 +111,8 @@ class WaveCNNClasifier(nn.Module):
         else:
             self._n_specs = 1
             return nn.Sequential(
-                spec_init(**mel_spec_paramms, quantizable=True)
-                if quantizable
-                else spec_init(**mel_spec_paramms),
-                QuantizableAmplitudeToDB(top_db=top_db)
-                if quantizable
-                else AmplitudeToDB(top_db=top_db),
+                spec_init(**mel_spec_paramms, quantizable=True) if quantizable else spec_init(**mel_spec_paramms),
+                QuantizableAmplitudeToDB(top_db=top_db) if quantizable else AmplitudeToDB(top_db=top_db),
                 NormalizeMelSpec(exportable=exportable),
             )
 
@@ -135,10 +128,7 @@ class WaveCNNClasifier(nn.Module):
                 spec_len = spec.shape[2]
             spec_piece_len = int(spec_len // self.trainx)
             spec = torch.cat(
-                [
-                    spec[:, :, i * spec_piece_len : (i + 1) * spec_piece_len]
-                    for i in range(self.trainx)
-                ],
+                [spec[:, :, i * spec_piece_len : (i + 1) * spec_piece_len] for i in range(self.trainx)],
                 axis=0,
             )
 
@@ -183,11 +173,11 @@ class WaveCNNAttenClasifier(nn.Module):
         transformer_backbone: bool = False,
         head_type: str = "AttHead",
         top_db: float = 80.0,
+        amin: float = 1e-10,
+        fixed_amplitude_to_db: bool = False,
         pretrained: bool = True,
         first_conv_name: str = "conv_stem",
-        first_conv_stride_overwrite: Optional[
-            Union[int, Tuple[int, int]]
-        ] = None,
+        first_conv_stride_overwrite: Optional[Union[int, Tuple[int, int]]] = None,
         exportable: bool = False,
         quantizable: bool = False,
         central_crop_input: Optional[float] = None,
@@ -195,7 +185,7 @@ class WaveCNNAttenClasifier(nn.Module):
         use_sigmoid: bool = False,
         spec_extractor: str = "Melspec",
         add_backbone_config: Optional[Dict[str, Any]] = None,
-        deep_supervision_steps: Optional[int] = None,
+        deep_supervision_steps: Optional[List[int]] = None,
         permute_backbone_emb: Optional[Tuple[int]] = None,
         no_head_inference_mode: bool = False,
         spec_augment_config: Optional[Dict[str, Any]] = None,
@@ -216,26 +206,22 @@ class WaveCNNAttenClasifier(nn.Module):
         self.permute_backbone_emb = permute_backbone_emb
         self.no_head_inference_mode = no_head_inference_mode
         self.logmelspec_extractor = self._create_feature_extractor(
-            mel_spec_paramms_, exportable, top_db, quantizable, spec_extractor
+            mel_spec_paramms_, exportable, top_db, quantizable, spec_extractor, fixed_amplitude_to_db, amin
         )
         self.spec_resize = spec_resize
         if spec_augment_config is not None:
             self.spec_augment = []
+            if "power_aug" in spec_augment_config:
+                self.spec_augment.append(RandomSpecPower(**spec_augment_config["power_aug"]))
             if "freq_mask" in spec_augment_config:
-                self.spec_augment.append(
-                    CustomFreqMasking(**spec_augment_config["freq_mask"])
-                )
+                self.spec_augment.append(CustomFreqMasking(**spec_augment_config["freq_mask"]))
             if "time_mask" in spec_augment_config:
-                self.spec_augment.append(
-                    CustomTimeMasking(**spec_augment_config["time_mask"])
-                )
+                self.spec_augment.append(CustomTimeMasking(**spec_augment_config["time_mask"]))
             self.spec_augment = nn.Sequential(*self.spec_augment)
         else:
             self.spec_augment = None
         if backbone is not None:
-            add_backbone_config_ = (
-                {} if add_backbone_config_ is None else add_backbone_config_
-            )
+            add_backbone_config_ = {} if add_backbone_config_ is None else add_backbone_config_
             if self.transformer_backbone:
                 head_dropout = add_backbone_config_.pop("head_dropout", 0.0)
                 self.backbone = timm.create_model(
@@ -253,6 +239,7 @@ class WaveCNNAttenClasifier(nn.Module):
                     pretrained=pretrained,
                     exportable=exportable,
                     in_chans=self._n_specs,
+                    out_indices=deep_supervision_steps,
                     **add_backbone_config_,
                 )
         if first_conv_stride_overwrite is not None:
@@ -278,34 +265,27 @@ class WaveCNNAttenClasifier(nn.Module):
             self.attn_pe = nn.Embedding(atten_smoothing_config["n_steps"], self.backbone.feature_info.channels()[-1])
 
         if head_config_ is not None and not self.transformer_backbone:
+            backbone_channels = self.backbone.feature_info.channels()
             if head_type == "AttHead":
-                backbone_channels = self.backbone.feature_info.channels()
                 self.head = AttHead(
-                    in_chans=(
-                        backbone_channels[-1]
-                        if deep_supervision_steps is None
-                        else backbone_channels[-deep_supervision_steps:]
-                    ),
+                    in_chans=(backbone_channels[-1] if deep_supervision_steps is None else backbone_channels),
                     exportable=exportable,
                     **head_config_,
                 )
             elif head_type == "Clasifier":
                 self.head = nn.Sequential(
-                    PoolingLayer(
-                        pool_type=head_config_.pop(
-                            "pool_type", "AdaptiveAvgPool2d"
-                        )
-                    ),
+                    PoolingLayer(pool_type=head_config_.pop("pool_type", "AdaptiveAvgPool2d")),
                     Clasifier(
-                        nn_embed_size=self.backbone.feature_info.channels()[
-                            -1
-                        ],
+                        nn_embed_size=backbone_channels[-1]
+                        if deep_supervision_steps is None
+                        else np.sum(backbone_channels),
                         **head_config_,
                     ),
                 )
             elif head_type == "AttHeadSimplified":
+                assert deep_supervision_steps is None, "Not implemented"
                 self.head = AttHeadSimplified(
-                    in_chans=self.backbone.feature_info.channels()[-1],
+                    in_chans=backbone_channels[-1],
                     exportable=exportable,
                     **head_config_,
                 )
@@ -314,9 +294,7 @@ class WaveCNNAttenClasifier(nn.Module):
         else:
             self.head = None
         if self.use_selected_indices:
-            self.register_buffer(
-                "selected_indices", torch.LongTensor(selected_indices)
-            )
+            self.register_buffer("selected_indices", torch.LongTensor(selected_indices))
         if use_sigmoid or self.transformer_backbone:
             self.sigmoid = nn.Sigmoid()
         else:
@@ -324,7 +302,7 @@ class WaveCNNAttenClasifier(nn.Module):
         self.to(self.device)
 
     def _create_feature_extractor(
-        self, mel_spec_paramms, exportable, top_db, quantizable, spec_extractor
+        self, mel_spec_paramms, exportable, top_db, quantizable, spec_extractor, fixed_amplitude_to_db, amin
     ):
         if spec_extractor == "Melspec":
             if exportable:
@@ -337,17 +315,21 @@ class WaveCNNAttenClasifier(nn.Module):
             spec_init = frontend.Leaf
         else:
             raise NotImplementedError(f"{spec_extractor} not implemented")
+
+        if quantizable:
+            am2db_init = QuantizableAmplitudeToDB
+        elif fixed_amplitude_to_db:
+            am2db_init = ChannelAgnosticAmplitudeToDB
+        else:
+            am2db_init = AmplitudeToDB
+
         if isinstance(mel_spec_paramms, list):
             self._n_specs = len(mel_spec_paramms)
             return nn.ModuleList(
                 [
                     nn.Sequential(
-                        spec_init(**mel_spec_paramm, quantizable=True)
-                        if quantizable
-                        else spec_init(**mel_spec_paramm),
-                        QuantizableAmplitudeToDB(top_db=top_db)
-                        if quantizable
-                        else AmplitudeToDB(top_db=top_db),
+                        spec_init(**mel_spec_paramm, quantizable=True) if quantizable else spec_init(**mel_spec_paramm),
+                        am2db_init(top_db=top_db, amin=amin),
                         NormalizeMelSpec(exportable=exportable),
                     )
                     for mel_spec_paramm in mel_spec_paramms
@@ -357,12 +339,8 @@ class WaveCNNAttenClasifier(nn.Module):
             self._n_specs = 1
             if spec_extractor != "LEAF":
                 return nn.Sequential(
-                    spec_init(**mel_spec_paramms, quantizable=True)
-                    if quantizable
-                    else spec_init(**mel_spec_paramms),
-                    QuantizableAmplitudeToDB(top_db=top_db)
-                    if quantizable
-                    else AmplitudeToDB(top_db=top_db),
+                    spec_init(**mel_spec_paramms, quantizable=True) if quantizable else spec_init(**mel_spec_paramms),
+                    am2db_init(top_db=top_db, amin=amin),
                     NormalizeMelSpec(exportable=exportable),
                 )
             else:
@@ -374,36 +352,29 @@ class WaveCNNAttenClasifier(nn.Module):
                 elif mel_spec_paramms.pop("normalize_and_db", False):
                     return nn.Sequential(
                         spec_init(**mel_spec_paramms, onnx_export=exportable),
-                        AmplitudeToDB(top_db=top_db),
+                        am2db_init(top_db=top_db, amin=amin),
                         NormalizeMelSpec(exportable=exportable),
                     )
                 else:
-                    return spec_init(
-                        **mel_spec_paramms, onnx_export=exportable
-                    )
+                    return spec_init(**mel_spec_paramms, onnx_export=exportable)
 
     def forward(self, input, return_spec_feature=False, return_cnn_emb=False):
         if self.central_crop_input is not None:
             overall_pad = input.shape[-1] // 2
             input = input[:, overall_pad // 2 : -(overall_pad // 2)]
         if self._n_specs > 1:
-            spec = [
-                mel_spec_extractor(input)[:, None]
-                for mel_spec_extractor in self.logmelspec_extractor
-            ]
+            spec = [mel_spec_extractor(input)[:, None] for mel_spec_extractor in self.logmelspec_extractor]
             spec = torch.cat(spec, dim=1)
         else:
             spec = self.logmelspec_extractor(input)[:, None]
         if self.spec_augment is not None and self.training:
             spec = self.spec_augment(spec)
         if self.spec_resize is not None:
-            spec = nn.functional.interpolate(
-                spec, size=self.spec_resize, mode="bilinear"
-            )
+            spec = nn.functional.interpolate(spec, size=self.spec_resize, mode="bilinear")
         if not self.quantizable and return_spec_feature:
             return spec
         if self.deep_supervision_steps is not None:
-            emb = self.backbone(spec)[-self.deep_supervision_steps :]
+            emb = self.backbone(spec)
         elif self.transformer_backbone:
             emb = self.backbone(spec)
         else:
@@ -462,12 +433,8 @@ class WaveTDNNClasifier(WaveCNNAttenClasifier):
             selected_indices=selected_indices,
         )
         if self._n_specs > 1:
-            raise NotImplementedError(
-                "TDNN is not implemented for multiple spectrogram"
-            )
-        self.tdnn = ECAPA_TDNN(
-            input_size=mel_spec_paramms["n_mels"], **tdnn_paramms
-        )
+            raise NotImplementedError("TDNN is not implemented for multiple spectrogram")
+        self.tdnn = ECAPA_TDNN(input_size=mel_spec_paramms["n_mels"], **tdnn_paramms)
         self.output_type = output_type
         self.sigmoid = nn.Sigmoid()
         self.to(self.device)

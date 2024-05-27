@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -25,6 +26,10 @@ class MultilabelClsForwardLongShort(nn.Module):
             "clipwise_name": "clipwise_logits_long",
             "framewise_name": "framewise_logits_long",
         },
+        mixup_alpha=None,
+        mixup_inf_norm=False,
+        mixup_binarized_tgt=False,
+        mixup_equal_data_w=False,
     ):
         super().__init__()
         loss_type in [
@@ -35,13 +40,9 @@ class MultilabelClsForwardLongShort(nn.Module):
         ]
         if use_slected_indices:
             if not (class_sum or use_weights):
-                raise ValueError(
-                    "Selected indices are supported only with `class_sum` OR `use_weights`"
-                )
+                raise ValueError("Selected indices are supported only with `class_sum` OR `use_weights`")
         if use_focal_loss and use_bce_focal_loss:
-            raise ValueError(
-                "use_focal_loss and use_bce_focal_loss are mutually exclusive"
-            )
+            raise ValueError("use_focal_loss and use_bce_focal_loss are mutually exclusive")
         self.class_sum = class_sum
         self.use_weights = use_weights
         self.use_slected_indices = use_slected_indices
@@ -49,50 +50,32 @@ class MultilabelClsForwardLongShort(nn.Module):
         self.framewise_pred_coef = framewise_pred_coef
         self.binirize_labels = binirize_labels
         self.is_output_dict = is_output_dict
+        self.mixup_alpha = mixup_alpha
+        self.mixup_inf_norm = mixup_inf_norm
+        self.mixup_binarized_tgt = mixup_binarized_tgt
+        self.mixup_equal_data_w = mixup_equal_data_w
         if not self.is_output_dict:
             if self.loss_type in [
                 "baseline_and_max_frame",
                 "logit_clip_and_max_frame",
             ]:
-                raise ValueError(
-                    "Output dict is required for `baseline_and_max_frame` or `logit_clip_and_max_frame`"
-                )
+                raise ValueError("Output dict is required for `baseline_and_max_frame` or `logit_clip_and_max_frame`")
         if loss_type == "prob_baseline":
             assert not use_focal_loss and not use_bce_focal_loss
-            self.loss_f = nn.BCELoss(
-                reduction="none"
-                if (self.use_weights or self.class_sum)
-                else "mean"
-            )
+            self.loss_f = nn.BCELoss(reduction="none" if (self.use_weights or self.class_sum) else "mean")
         elif loss_type == "BCEFocal2WayLoss":
             self.loss_f = BCEFocal2WayLoss(
                 **config_2way_loss,
             )
         elif loss_type == "CrossEntropy":
-            self.loss_f = nn.CrossEntropyLoss(
-                reduction="none"
-                if (self.use_weights or self.class_sum)
-                else "mean"
-            )
+            self.loss_f = nn.CrossEntropyLoss(reduction="none" if (self.use_weights or self.class_sum) else "mean")
         else:
             if use_focal_loss:
-                self.loss_f = FocalLoss(
-                    reduction="none"
-                    if (self.use_weights or self.class_sum)
-                    else "mean"
-                )
+                self.loss_f = FocalLoss(reduction="none" if (self.use_weights or self.class_sum) else "mean")
             elif use_bce_focal_loss:
-                self.loss_f = FocalLossBCE(
-                    reduction="none"
-                    if (self.use_weights or self.class_sum)
-                    else "mean"
-                )
+                self.loss_f = FocalLossBCE(reduction="none" if (self.use_weights or self.class_sum) else "mean")
             else:
-                self.loss_f = nn.BCEWithLogitsLoss(
-                    reduction="none"
-                    if (self.use_weights or self.class_sum)
-                    else "mean"
-                )
+                self.loss_f = nn.BCEWithLogitsLoss(reduction="none" if (self.use_weights or self.class_sum) else "mean")
         if self.use_weights:
             self.weights = None
         if self.use_slected_indices:
@@ -111,6 +94,24 @@ class MultilabelClsForwardLongShort(nn.Module):
             self.selected_indices = self.selected_indices.to(device)
         if self.use_weights:
             self.weights = self.weights[:, self.selected_indices]
+
+    def mixup(self, data, targets):
+        indices = torch.randperm(data.size(0))
+        data2 = data[indices]
+        targets2 = targets[indices]
+
+        if self.mixup_equal_data_w:
+            lam = 0.5
+        else:
+            lam = torch.FloatTensor([np.random.beta(self.mixup_alpha, self.mixup_alpha)]).to(data.device)
+        data = data * lam + data2 * (1 - lam)
+        if self.mixup_inf_norm:
+            data = data / (data.abs().max(dim=1, keepdims=True).values + 1e-6)
+        targets = targets * lam + targets2 * (1 - lam)
+        if self.mixup_binarized_tgt:
+            targets = (targets > 0).float()
+
+        return data, targets
 
     def forward(self, runner, batch, epoch=None):
 
@@ -133,6 +134,8 @@ class MultilabelClsForwardLongShort(nn.Module):
                     self.batch_aug.to(wave.device)
                     self.batch_aug_device_is_set = True
                 wave = self.batch_aug(wave)
+            if self.mixup_alpha is not None:
+                wave, labels = self.mixup(wave, labels)
             if self.binirize_labels:
                 inputs = {"target": (labels > 0).float()}
             else:
@@ -147,21 +150,13 @@ class MultilabelClsForwardLongShort(nn.Module):
                 loss_v = self.loss_f(output, labels)
         elif self.loss_type == "baseline_and_max_frame":
             loss_v = (
-                self.loss_f(output["clipwise_logits_long"], labels)
-                * (1 - self.framewise_pred_coef)
-                + self.loss_f(
-                    output["framewise_logits_long"].max(1)[0], labels
-                )
-                * self.framewise_pred_coef
+                self.loss_f(output["clipwise_logits_long"], labels) * (1 - self.framewise_pred_coef)
+                + self.loss_f(output["framewise_logits_long"].max(1)[0], labels) * self.framewise_pred_coef
             )
         elif self.loss_type == "logit_clip_and_max_frame":
             loss_v = (
-                self.loss_f(torch.logit(output["clipwise_pred_long"]), labels)
-                * (1 - self.framewise_pred_coef)
-                + self.loss_f(
-                    output["framewise_logits_long"].max(1)[0], labels
-                )
-                * self.framewise_pred_coef
+                self.loss_f(torch.logit(output["clipwise_pred_long"]), labels) * (1 - self.framewise_pred_coef)
+                + self.loss_f(output["framewise_logits_long"].max(1)[0], labels) * self.framewise_pred_coef
             )
         elif self.loss_type == "prob_baseline":
             if self.is_output_dict:

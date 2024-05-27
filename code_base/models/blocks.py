@@ -4,6 +4,8 @@ from time import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
+from torchaudio import functional as F_audio
 
 try:
     from nnAudio.features.stft import STFT as nnAudioSTFT
@@ -37,9 +39,7 @@ class NormalizeMelSpec(nn.Module):
                 Xstd.min(-1)[0].min(-1)[0],
                 Xstd.max(-1)[0].max(-1)[0],
             )
-            fix_ind = (norm_max - norm_min) > self.eps * torch.ones_like(
-                (norm_max - norm_min)
-            )
+            fix_ind = (norm_max - norm_min) > self.eps * torch.ones_like((norm_max - norm_min))
             V = torch.zeros_like(Xstd)
             if fix_ind.sum():
                 V_fix = Xstd[fix_ind]
@@ -65,9 +65,7 @@ def gem_freq(x, p=3, eps=1e-6, exportable=False):
     if exportable:
         return x.clamp(min=eps).pow(p).mean(2, keepdims=True).pow(1.0 / p)
     else:
-        return F.avg_pool2d(x.clamp(min=eps).pow(p), (x.size(-2), 1)).pow(
-            1.0 / p
-        )
+        return F.avg_pool2d(x.clamp(min=eps).pow(p), (x.size(-2), 1)).pow(1.0 / p)
 
 
 class GeMFreq(nn.Module):
@@ -81,6 +79,16 @@ class GeMFreq(nn.Module):
         return gem_freq(x, p=self.p, eps=self.eps, exportable=self.exportable)
 
 
+class GeMFreq2D(nn.Module):
+    def __init__(self, p=3, eps=1e-6):
+        super().__init__()
+        self.p = torch.nn.Parameter(torch.ones(1) * p)
+        self.eps = eps
+
+    def forward(self, x):
+        return x.clamp(min=self.eps).pow(self.p).mean((2, 3), keepdims=True).pow(1.0 / self.p)
+
+
 class GeMFreqFixed(nn.Module):
     def __init__(self, time_kernel_size, p=3, eps=1e-6):
         super().__init__()
@@ -89,9 +97,7 @@ class GeMFreqFixed(nn.Module):
         self.avg_pool = nn.AvgPool2d(kernel_size=(1, time_kernel_size))
 
     def forward(self, x):
-        return self.avg_pool(
-            x.clamp(min=self.eps).pow(self.p).mean(2, keepdims=True)
-        ).pow(1.0 / self.p)
+        return self.avg_pool(x.clamp(min=self.eps).pow(self.p).mean(2, keepdims=True)).pow(1.0 / self.p)
 
 
 class Clasifier(nn.Module):
@@ -154,6 +160,11 @@ class Clasifier(nn.Module):
                 nn.Dropout(p=second_dropout_rate),
                 nn.Linear(nn_embed_size, classes_num),
             )
+        elif classifier_type == "normed_linear":
+            self.classifier = nn.Sequential(
+                nn.BatchNorm1d(nn_embed_size),
+                nn.Linear(nn_embed_size, classes_num),
+            )
         elif classifier_type == "identity":
             self.classifier = nn.Identity()
         else:
@@ -172,23 +183,20 @@ class PoolingLayer(nn.Module):
         if self.pool_type == "AdaptiveAvgPool2d":
             self.pool_layer = nn.AdaptiveAvgPool2d((1, 1))
         elif self.pool_type == "GeM":
-            self.pool_layer = nn.AdaptiveAvgPool2d((1, 1))
-            self.p = torch.nn.Parameter(torch.ones(1) * p)
-            self.eps = eps
+            self.pool_layer = GeMFreq2D(p=p, eps=eps)
         else:
             raise RuntimeError(f"{self.pool_type} is invalid pool_type")
 
-    def forward(self, x):
+    def forward_one(self, x):
         bs, ch, h, w = x.shape
-        if self.pool_type == "AdaptiveAvgPool2d":
-            x = self.pool_layer(x)
-            x = x.view(bs, ch)
-        elif self.pool_type == "GeM":
-            x = self.pool_layer(x.clamp(min=self.eps).pow(self.p)).pow(
-                1.0 / self.p
-            )
-            x = x.view(bs, ch)
+        x = self.pool_layer(x)
+        x = x.view(bs, ch)
         return x
+
+    def forward(self, x):
+        if isinstance(x, list):
+            return torch.cat([self.forward_one(xx) for xx in x], dim=1)
+        return self.forward_one(x)
 
 
 class AttHead(nn.Module):
@@ -212,10 +220,7 @@ class AttHead(nn.Module):
         self.output_type = output_type
         if isinstance(in_chans, list):
             self.pooling = nn.ModuleList(
-                [
-                    GeMFreqFixed(time_kernel_size=k * 2 if k > 0 else 1)
-                    for k in list(reversed(range(len(in_chans))))
-                ]
+                [GeMFreqFixed(time_kernel_size=k * 2 if k > 0 else 1) for k in list(reversed(range(len(in_chans))))]
             )
             self.deep_supervision = True
             in_chans = sum(in_chans)
@@ -292,9 +297,7 @@ class AttHead(nn.Module):
             if self.output_type == "clipwise_timewisemax_pred_short":
                 return torch.max(torch.sigmoid(feat_v), dim=-1)[
                     0
-                ] * self.infer_framewise_max_coef + clipwise_pred_long * (
-                    1 - self.infer_framewise_max_coef
-                )
+                ] * self.infer_framewise_max_coef + clipwise_pred_long * (1 - self.infer_framewise_max_coef)
             clipwise_logits_long = torch.sum(
                 feat_v * torch.softmax(time_att, dim=-1),
                 dim=-1,
@@ -318,22 +321,15 @@ class AttHead(nn.Module):
         else:
             # Compute all frame pred
             framewise_pred_long = torch.sigmoid(feat_v)
-            clipwise_logits_long = torch.sum(
-                feat_v * torch.softmax(time_att, dim=-1), dim=-1
-            )
+            clipwise_logits_long = torch.sum(feat_v * torch.softmax(time_att, dim=-1), dim=-1)
             if self.output_type == "clipwise_logits_long":
                 return clipwise_logits_long
-            clipwise_pred_long = torch.sum(
-                framewise_pred_long * torch.softmax(time_att, dim=-1), dim=-1
-            )
+            clipwise_pred_long = torch.sum(framewise_pred_long * torch.softmax(time_att, dim=-1), dim=-1)
             if self.output_type == "clipwise_pred_long":
                 return clipwise_pred_long
             # Compute start and end of small frame
             feat_time = feat.size(-1)
-            start = (
-                feat_time / 2
-                - feat_time * (self.infer_period / self.train_period) / 2
-            )
+            start = feat_time / 2 - feat_time * (self.infer_period / self.train_period) / 2
             end = start + feat_time * (self.infer_period / self.train_period)
             start = int(start)
             end = int(end)
@@ -342,9 +338,7 @@ class AttHead(nn.Module):
             time_att_short = time_att[:, :, start:end]
             # Compute small frame pred
             framewise_pred_short = torch.sigmoid(feat_v_short)
-            clipwise_logits_short = torch.sum(
-                feat_v_short * torch.softmax(time_att_short, dim=-1), dim=-1
-            )
+            clipwise_logits_short = torch.sum(feat_v_short * torch.softmax(time_att_short, dim=-1), dim=-1)
             if self.output_type == "clipwise_logits_short":
                 return clipwise_logits_short
             clipwise_pred_short = torch.sum(
@@ -355,9 +349,7 @@ class AttHead(nn.Module):
                 return clipwise_pred_short
             framewise_clipwise_pred_short = framewise_pred_short.max(axis=2)[
                 0
-            ] * self.infer_framewise_max_coef + clipwise_pred_short * (
-                1 - self.infer_framewise_max_coef
-            )
+            ] * self.infer_framewise_max_coef + clipwise_pred_short * (1 - self.infer_framewise_max_coef)
             return {
                 "clipwise_pred_long": clipwise_pred_long,
                 "clipwise_logits_long": clipwise_logits_long,
@@ -371,7 +363,7 @@ class AttHead(nn.Module):
                 # Combined
                 "framewise_clipwise_pred_short": framewise_clipwise_pred_short,
             }
-        
+
 
 class AttHeadSimplified(nn.Module):
     def __init__(
@@ -515,9 +507,7 @@ class TraceableMelspec(nn.Module):
             torch.hann_window(win_length if win_length is not None else n_fft),
         )
         self.trainable = trainable
-        self.mel_scale = MelScale(
-            n_mels, sample_rate, f_min, f_max, n_fft // 2 + 1, norm, mel_scale
-        )
+        self.mel_scale = MelScale(n_mels, sample_rate, f_min, f_max, n_fft // 2 + 1, norm, mel_scale)
 
     def forward(self, x):
         spec_f = self.spectrogram(x)
@@ -527,14 +517,13 @@ class TraceableMelspec(nn.Module):
             # prevent Nan gradient when sqrt(0) due to output=0
             # Taken from nnAudio.features.stft.STFT
             eps = 1e-8 if self.trainable else 0.0
-            spec_f = torch.sqrt(
-                spec_f[:, :, :, 0].pow(2) + spec_f[:, :, :, 1].pow(2) + eps
-            )
+            spec_f = torch.sqrt(spec_f[:, :, :, 0].pow(2) + spec_f[:, :, :, 1].pow(2) + eps)
             if self.power != 1.0:
                 spec_f = spec_f.pow(self.power)
         mel_spec = self.mel_scale(spec_f)
         return mel_spec
-    
+
+
 class AttnBlock(nn.Module):
     def __init__(self, embed_dim, dropout):
         super().__init__()
@@ -619,13 +608,7 @@ class QuantizableSTFT(STFTBase):
         start = time()
 
         # Create filter windows for stft
-        (
-            kernel_sin,
-            kernel_cos,
-            self.bins2freq,
-            self.bin_list,
-            window_mask,
-        ) = create_fourier_kernels(
+        (kernel_sin, kernel_cos, self.bins2freq, self.bin_list, window_mask,) = create_fourier_kernels(
             n_fft,
             win_length=win_length,
             freq_bins=freq_bins,
@@ -671,11 +654,7 @@ class QuantizableSTFT(STFTBase):
                 param.requires_grad = False
 
         if verbose == True:
-            print(
-                "STFT kernels created, time used = {:.4f} seconds".format(
-                    time() - start
-                )
-            )
+            print("STFT kernels created, time used = {:.4f} seconds".format(time() - start))
         else:
             pass
 
@@ -713,21 +692,66 @@ class QuantizableSTFT(STFTBase):
         if self.output_format == "Magnitude":
             spec = spec_real.pow(2) + spec_imag.pow(2)
             if self.trainable == True:
-                return torch.sqrt(
-                    spec + 1e-8
-                )  # prevent Nan gradient when sqrt(0) due to output=0
+                return torch.sqrt(spec + 1e-8)  # prevent Nan gradient when sqrt(0) due to output=0
             else:
                 return torch.sqrt(spec)
 
         elif self.output_format == "Complex":
-            return torch.stack(
-                (spec_real, -spec_imag), -1
-            )  # Remember the minus sign for imaginary part
+            return torch.stack((spec_real, -spec_imag), -1)  # Remember the minus sign for imaginary part
 
         elif self.output_format == "Phase":
             return torch.atan2(
                 -spec_imag + 0.0, spec_real
             )  # +0.0 removes -0.0 elements, which leads to error in calculating phase
+
+
+class AmplitudeToDB(torch.nn.Module):
+    r"""Turn a tensor from the power/amplitude scale to the decibel scale.
+
+    .. devices:: CPU CUDA
+
+    .. properties:: Autograd TorchScript
+
+    This output depends on the maximum value in the input tensor, and so
+    may return different values for an audio clip split into snippets vs. a
+    a full clip.
+
+    Args:
+        stype (str, optional): scale of input tensor (``"power"`` or ``"magnitude"``). The
+            power being the elementwise square of the magnitude. (Default: ``"power"``)
+        top_db (float or None, optional): minimum negative cut-off in decibels.  A reasonable
+            number is 80. (Default: ``None``)
+
+    Example
+        >>> waveform, sample_rate = torchaudio.load("test.wav", normalize=True)
+        >>> transform = transforms.AmplitudeToDB(stype="amplitude", top_db=80)
+        >>> waveform_db = transform(waveform)
+    """
+    __constants__ = ["multiplier", "ref_value", "db_multiplier"]
+
+    def __init__(self, stype: str = "power", top_db: Optional[float] = None, amin: float = 1e-10) -> None:
+        super(AmplitudeToDB, self).__init__()
+        self.stype = stype
+        if top_db is not None and top_db < 0:
+            raise ValueError("top_db must be positive value")
+        self.top_db = top_db
+        self.multiplier = 10.0 if stype == "power" else 20.0
+        self.amin = amin
+        self.ref_value = 1.0
+        self.db_multiplier = math.log10(max(self.amin, self.ref_value))
+
+    def forward(self, x: Tensor) -> Tensor:
+        r"""Numerically stable implementation from Librosa.
+
+        https://librosa.org/doc/latest/generated/librosa.amplitude_to_db.html
+
+        Args:
+            x (Tensor): Input tensor before being converted to decibel scale.
+
+        Returns:
+            Tensor: Output tensor in decibel scale.
+        """
+        return F_audio.amplitude_to_DB(x, self.multiplier, self.amin, self.db_multiplier, self.top_db)
 
 
 class QuantizableAmplitudeToDB(torch.nn.Module):
@@ -754,9 +778,7 @@ class QuantizableAmplitudeToDB(torch.nn.Module):
     """
     __constants__ = ["multiplier", "amin", "ref_value", "db_multiplier"]
 
-    def __init__(
-        self, stype: str = "power", top_db: Optional[float] = None
-    ) -> None:
+    def __init__(self, stype: str = "power", top_db: Optional[float] = None) -> None:
         super().__init__()
         self.stype = stype
         if top_db is not None and top_db < 0:
@@ -793,5 +815,66 @@ class QuantizableAmplitudeToDB(torch.nn.Module):
 
             # Repack batch
             x_db = x_db.reshape(shape)
+
+        return x_db
+
+
+class ChannelAgnosticAmplitudeToDB(torch.nn.Module):
+    r"""Turn a tensor from the power/amplitude scale to the decibel scale.
+
+    .. devices:: CPU CUDA
+
+    .. properties:: Autograd TorchScript
+
+    This output depends on the maximum value in the input tensor, and so
+    may return different values for an audio clip split into snippets vs. a
+    a full clip.
+
+    Args:
+        stype (str, optional): scale of input tensor (``"power"`` or ``"magnitude"``). The
+            power being the elementwise square of the magnitude. (Default: ``"power"``)
+        top_db (float or None, optional): minimum negative cut-off in decibels.  A reasonable
+            number is 80. (Default: ``None``)
+
+    Example
+        >>> waveform, sample_rate = torchaudio.load("test.wav", normalize=True)
+        >>> transform = transforms.AmplitudeToDB(stype="amplitude", top_db=80)
+        >>> waveform_db = transform(waveform)
+    """
+    __constants__ = ["multiplier", "ref_value", "db_multiplier"]
+
+    def __init__(self, stype: str = "power", top_db: Optional[float] = None, amin: float = 1e-10) -> None:
+        super(ChannelAgnosticAmplitudeToDB, self).__init__()
+        self.stype = stype
+        if top_db is not None and top_db < 0:
+            raise ValueError("top_db must be positive value")
+        self.top_db = top_db
+        self.multiplier = 10.0 if stype == "power" else 20.0
+        self.amin = amin
+        self.ref_value = 1.0
+        self.db_multiplier = math.log10(max(self.amin, self.ref_value))
+
+    def forward(self, x: Tensor) -> Tensor:
+        r"""Numerically stable implementation from Librosa.
+
+        https://librosa.org/doc/latest/generated/librosa.amplitude_to_db.html
+
+        Args:
+            x (Tensor): Input tensor before being converted to decibel scale.
+
+        Returns:
+            Tensor: Output tensor in decibel scale.
+        """
+        assert x.dim() in [3, 4], f"Expected 3D or 4D tensor, but got {x.dim()}D tensor"
+
+        add_fake_channel = False
+        if x.dim() == 3:
+            x = x.unsqueeze(1)
+            add_fake_channel = True
+
+        x_db = F_audio.amplitude_to_DB(x, self.multiplier, self.amin, self.db_multiplier, self.top_db)
+
+        if add_fake_channel:
+            x_db = x_db.squeeze(1)
 
         return x_db

@@ -37,6 +37,8 @@ onnxconverter-common = "^1.14.0"
 openvino = "^2024.0.0"
 pytorch-toolbelt = "^0.6.3"
 colorednoise = "^2.2.0"
+warmup-scheduler = "^0.3"
+folium = "^0.16.0"
 
 
 [build-system]

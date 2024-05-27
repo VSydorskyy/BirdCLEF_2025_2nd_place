@@ -1,5 +1,6 @@
 import gc
 import math
+import os
 import warnings
 from os.path import join as pjoin
 from os.path import relpath, splitext
@@ -48,6 +49,7 @@ class WaveDataset(torch.utils.data.Dataset):
         df_filter_rule=None,
         do_noisereduce=False,
         late_normalize=False,
+        load_normalize=False,
         use_sampler=False,
         shuffle=False,
         res_type="kaiser_best",
@@ -57,6 +59,7 @@ class WaveDataset(torch.utils.data.Dataset):
         empty_soundscape_config=None,
         soundscape_pseudo_df_path=None,
         start_from_zero=False,
+        ignore_setting_dataset_value=False,
     ):
         super().__init__()
         assert timewise_slice_pad < segment_len
@@ -64,11 +67,14 @@ class WaveDataset(torch.utils.data.Dataset):
             raise ValueError("timewise_col can be used only with h5py")
         if use_h5py and precompute:
             raise ValueError("h5py files can not be used with `precompute`")
+        if use_h5py and load_normalize:
+            raise RuntimeError("load_normalize is not supported with h5py")
         if df is None and add_df_paths is None:
             raise ValueError("`df` OR/AND `add_df_paths` should be defined")
         if soundscape_pseudo_df_path is not None and not use_h5py:
             raise ValueError("Soundscape pseudo df can be used only with h5py")
-        df["dataset"] = "base"
+        if not ignore_setting_dataset_value:
+            df["dataset"] = "base"
         if add_df_paths is not None:
             cols_to_take = [
                 target_col,
@@ -144,8 +150,23 @@ class WaveDataset(torch.utils.data.Dataset):
 
         self.precompute = precompute
         self.use_h5py = use_h5py
+        self.load_normalize = load_normalize
         if self.use_h5py:
             self.df[self.name_col] = self.df[self.name_col].apply(lambda x: splitext(x)[0] + ".hdf5")
+
+        # Validate that all files exist
+        filenames_exists = self.df[self.name_col].apply(lambda x: os.path.exists(x))
+        if not filenames_exists.all() and not self.use_h5py:
+            print("Some files do not exist. Trying to twick extensions")
+            # Try to twick extensions
+            self.df.loc[~filenames_exists, self.name_col] = self.df.loc[~filenames_exists, self.name_col].apply(
+                lambda x: splitext(x)[0] + ".mp3"
+            )
+            filenames_exists = self.df[self.name_col].apply(lambda x: os.path.exists(x))
+        if not filenames_exists.all():
+            raise FileNotFoundError(
+                "Some files do not exist. Failed List:\n", self.df[~filenames_exists][self.name_col].to_list()
+            )
 
         self.sample_rate = sample_rate
         self.do_noisereduce = do_noisereduce
@@ -172,7 +193,7 @@ class WaveDataset(torch.utils.data.Dataset):
                     n_cores=n_cores,
                     return_sr=False,
                     sr=self.sample_rate,
-                    do_normalize=not self.late_normalize,
+                    do_normalize=(not self.late_normalize) and self.load_normalize,
                     do_noisereduce=do_noisereduce,
                     res_type=self.res_type,
                     pos_dtype=self.pos_dtype,
@@ -187,7 +208,7 @@ class WaveDataset(torch.utils.data.Dataset):
                         im_name,
                         sr=self.sample_rate,
                         do_noisereduce=do_noisereduce,
-                        normalize=not self.late_normalize,
+                        normalize=(not self.late_normalize) and self.load_normalize,
                         res_type=self.res_type,
                         pos_dtype=self.pos_dtype,
                     )
@@ -229,8 +250,9 @@ class WaveDataset(torch.utils.data.Dataset):
             sample_slices_padded = [
                 [
                     int((el[0] - self.timewise_slice_pad) * self.sample_rate),
-                    int((el[1] + self.timewise_slice_pad) * self.sample_rate)
-                ] for el in sample_slices
+                    int((el[1] + self.timewise_slice_pad) * self.sample_rate),
+                ]
+                for el in sample_slices
             ]
             sample_slices_padded[0][0] = max(0, sample_slices_padded[0][0])
             sample_slices_padded[-1][1] = min(input.shape[0] - self.segment_len, sample_slices_padded[-1][1])
@@ -241,15 +263,21 @@ class WaveDataset(torch.utils.data.Dataset):
                     sample_slices_padded[0][1] = sample_slices_padded[0][0] + 1
             # print("Padded sample slices", sample_slices_padded)
             start, chunk_idx = sample_uniformly_np_index(sample_slices_padded)
-            cutted_slice = np.array(input[start : start + self.segment_len]) if self.use_h5py else input[start : start + self.segment_len]
+            cutted_slice = (
+                np.array(input[start : start + self.segment_len])
+                if self.use_h5py
+                else input[start : start + self.segment_len]
+            )
             # print("Picked start", start)
             if cutted_slice.shape[0] < self.segment_len:
                 pad_len = self.segment_len - cutted_slice.shape[0]
-                cutted_slice =  np.pad(np.array(cutted_slice), ((pad_len, 0)))
+                cutted_slice = np.pad(np.array(cutted_slice), ((pad_len, 0)))
             return cutted_slice, chunk_idx
         if end_second is not None:
             end = int(end_second * self.sample_rate)
-            input = np.array(input[end-self.segment_len:end]) if self.use_h5py else input[end-self.segment_len:end]
+            input = (
+                np.array(input[end - self.segment_len : end]) if self.use_h5py else input[end - self.segment_len : end]
+            )
         if input.shape[0] < self.segment_len:
             pad_len = self.segment_len - input.shape[0]
             return np.pad(np.array(input) if self.use_h5py else input, ((pad_len, 0)))
@@ -290,7 +318,11 @@ class WaveDataset(torch.utils.data.Dataset):
             if self.use_h5py:
                 with h5py.File(self.df[self.name_col].iloc[idx], "r") as f:
                     # Very messy but let it be
-                    if self.df["dataset"].iloc[idx] is not None and self.df["dataset"].iloc[idx].startswith("soundscape"):
+                    if (
+                        self.df["dataset"].iloc[idx] is not None
+                        and self.df["dataset"].iloc[idx].startswith("soundscape")
+                        and self.timewise_col is None
+                    ):
                         end_second = self.df["final_second"].iloc[idx]
                     else:
                         end_second = None
@@ -317,7 +349,7 @@ class WaveDataset(torch.utils.data.Dataset):
                         self.df[self.name_col].iloc[idx],
                         sr=self.sample_rate,
                         do_noisereduce=self.do_noisereduce,
-                        normalize=not self.late_normalize,
+                        normalize=(not self.late_normalize) and self.load_normalize,
                         res_type=self.res_type,
                         pos_dtype=self.pos_dtype,
                     )
@@ -335,8 +367,7 @@ class WaveDataset(torch.utils.data.Dataset):
             if self.timewise_col is not None:
                 # print("Chunk", self.df[self.timewise_col].iloc[idx][chunk_idx])
                 target = self._prepare_target(
-                    main_tgt, sec_tgt, 
-                    all_labels=self.df[self.timewise_col].iloc[idx][chunk_idx][-1]
+                    main_tgt, sec_tgt, all_labels=self.df[self.timewise_col].iloc[idx][chunk_idx][-1]
                 )
             else:
                 target = self._prepare_target(main_tgt, sec_tgt)
@@ -428,6 +459,7 @@ class WaveAllFileDataset(WaveDataset):
         label_str2int_mapping_path,
         df_path=None,
         add_df_paths=None,
+        filename_change_mapping=None,
         target_col="primary_label",
         sec_target_col="secondary_labels",
         all_target_col="birds",
@@ -460,6 +492,7 @@ class WaveAllFileDataset(WaveDataset):
         # In BirdClef Comp, it is claimed that all samples in 32K sr
         # we will just validate it, without doing resampling
         validate_sr=None,
+        ignore_setting_dataset_value=False,
         **kwargs,
     ):
         if kwargs:
@@ -475,6 +508,7 @@ class WaveAllFileDataset(WaveDataset):
         super().__init__(
             df=df,
             add_df_paths=add_df_paths,
+            filename_change_mapping=filename_change_mapping,
             root=root,
             label_str2int_mapping_path=label_str2int_mapping_path,
             target_col=target_col,
@@ -494,6 +528,7 @@ class WaveAllFileDataset(WaveDataset):
             do_noisereduce=do_noisereduce,
             late_normalize=late_normalize,
             use_h5py=use_h5py,
+            ignore_setting_dataset_value=ignore_setting_dataset_value,
         )
         self.validate_sr = validate_sr
         self.load_normalize = load_normalize

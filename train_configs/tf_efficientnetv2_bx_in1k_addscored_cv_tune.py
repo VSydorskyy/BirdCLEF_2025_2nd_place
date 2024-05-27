@@ -16,17 +16,17 @@ ROOT_PATH = "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_features/"
 LATE_NORMALIZE = True
 MAXIMIZE_METRIC = True
 MAIN_METRIC = "valid_roc_auc"
-PATH_TO_JSON_MAPPING = "/home/vova/data/exps/birdclef_2024/class_mappings/bird2int_2024.json"
+PATH_TO_JSON_MAPPING = "/home/vova/data/exps/birdclef_2024/class_mappings/bird2int_2024_PrevComp.json"
 PRECOMPUTE = False
 DEBUG = False
 
 CONFIG = {
     "seed": 1243,
-    "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_metadata_extended_noduplv1.csv",
-    "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/birdclef_2024_5_folds_split_nodupl.npy",
-    "exp_name": "convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_TimeFlip05_FormixupAlpha05_balSampl_Radamlr1e4_CosBatchLR1e6_Epoch30_FocalBCELoss_Full_NoDuplsV1",
+    "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/merged_train_metadata_extended_noduplv2.csv",
+    "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/merged_5_folds_split_noduplV1.npy",
+    "exp_name": "tf_efficientnetv2_b1_in1k_Exp_noamp_64bs_5sec_MergedData_TuneStartF3em4_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_balSamplWithRep_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV2",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
-    "folds": None,
+    "folds": [0, 1, 2, 3, 4],
     "train_function": lightning_training,
     "train_function_args": {
         "train_dataset_class": WaveDataset,
@@ -40,6 +40,20 @@ CONFIG = {
             "late_normalize": LATE_NORMALIZE,
             "use_h5py": True,
             "late_aug": TimeFlip(p=0.5),
+            "ignore_setting_dataset_value": True,
+            "filename_change_mapping": {
+                "base": "birdclef_2024/train_features/",
+                "comp_2021": "birdclef_2021/train_features/",
+                "comp_2023": "birdclef_2023/train_features/",
+                "comp_2022": "birdclef_2022/train_features/",
+                "comp_2020": "birdsong_recognition/train_features/",
+                "a_m_2020": "xeno_canto_bird_recordings_extended_a_m/train_features/",
+                "n_z_2020": "xeno_canto_bird_recordings_extended_n_z/train_features/",
+                "xc_2024_classes": "xeno_canto/dataset_2024_classes/train_features/",
+            },
+            "shuffle": True,
+            "use_sampler": True,
+            "sampler_col": "primary_label",
         },
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {
@@ -52,6 +66,17 @@ CONFIG = {
             "sample_id": None,
             "late_normalize": LATE_NORMALIZE,
             "use_h5py": True,
+            "ignore_setting_dataset_value": True,
+            "filename_change_mapping": {
+                "base": "birdclef_2024/train_features/",
+                "comp_2021": "birdclef_2021/train_features/",
+                "comp_2023": "birdclef_2023/train_features/",
+                "comp_2022": "birdclef_2022/train_features/",
+                "comp_2020": "birdsong_recognition/train_features/",
+                "a_m_2020": "xeno_canto_bird_recordings_extended_a_m/train_features/",
+                "n_z_2020": "xeno_canto_bird_recordings_extended_n_z/train_features/",
+                "xc_2024_classes": "xeno_canto/dataset_2024_classes/train_features/",
+            },
         },
         "train_dataloader_config": {
             "batch_size": B_S,
@@ -69,7 +94,7 @@ CONFIG = {
         },
         "nn_model_class": WaveCNNAttenClasifier,
         "nn_model_config": dict(
-            backbone="convnextv2_tiny.fcmae_ft_in22k_in1k_384",
+            backbone="tf_efficientnetv2_b1.in1k",
             mel_spec_paramms={
                 "sample_rate": 32000,
                 "n_mels": 128,
@@ -78,17 +103,31 @@ CONFIG = {
                 "hop_length": 512,
                 "normalized": True,
             },
+            spec_augment_config={
+                "freq_mask": {
+                    "mask_max_length": 20,
+                    "mask_max_masks": 3,
+                    "p": 0.7,
+                    "inplace": True,
+                },
+                "time_mask": {
+                    "mask_max_length": 30,
+                    "mask_max_masks": 3,
+                    "p": 0.7,
+                    "inplace": True,
+                },
+            },
             head_config={
                 "p": 0.5,
-                "num_class": 188,
+                "num_class": 998,
                 "train_period": TRAIN_PERIOD,
                 "infer_period": TRAIN_PERIOD,
             },
             exportable=True,
         ),
-        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-4),
+        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=3e-4),
         "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=N_EPOCHS * len_train, T_mult=1, eta_min=1e-6, last_epoch=-1
+            optimizer, T_0=int((N_EPOCHS * len_train) * 1.1), T_mult=1, eta_min=1e-6, last_epoch=-1
         ),
         "scheduler_params": {"interval": "step", "monitor": MAIN_METRIC},
         "forward": lambda: MultilabelClsForwardLongShort(
@@ -97,6 +136,9 @@ CONFIG = {
             batch_aug=None,
             use_bce_focal_loss=True,
             mixup_alpha=0.5,
+            mixup_inf_norm=True,
+            mixup_binarized_tgt=True,
+            mixup_equal_data_w=True,
             binirize_labels=True,
         ),
         "callbacks": lambda: [
@@ -126,5 +168,19 @@ CONFIG = {
         "n_checkpoints_to_save": 3,
         "log_every_n_steps": None,
         "debug": DEBUG,
+        "class_weights_path": "sqrt",
+        "use_sampler": True,
+        "sampler_with_replacement": True,
+        "pretrain_config": [
+            {
+                "model_chkp_root": f"logdirs/tf_efficientnetv2_b1_in1k_Exp_noamp_64bs_5sec_MergedData_AllPrevCompData_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_RealbalSamplWithRep_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV2/fold_{fold_id}/checkpoints",
+                "model_chkp_basename": None,
+                "model_chkp_regex": r"(?P<key>\w+)=(?P<value>[\d.]+)(?=\.ckpt|$)",
+                "swa_sort_rule": lambda x: -float(x["valid_roc_auc"]),
+                "n_swa_to_take": 3,
+                "delete_prefix": "model.",
+            }
+            for fold_id in range(5)
+        ],
     },
 }

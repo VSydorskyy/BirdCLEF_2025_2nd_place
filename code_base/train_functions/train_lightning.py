@@ -1,8 +1,8 @@
 import os
+from itertools import chain
 from pprint import pprint
 from time import time
 from typing import Callable, Dict, List, Optional, Union
-from itertools import chain
 
 import lightning as L
 import numpy as np
@@ -187,17 +187,18 @@ def lightning_training(
     debug: bool = False,
     check_exp_exists: bool = False,
     train_strategy: str = "auto",
-
     nocall_dataset_class: Optional[torch.utils.data.Dataset] = None,
     nocall_dataset_config: Optional[dict] = None,
     nocall_dataset_df_path: Optional[str] = None,
-
     device_outside_model: bool = False,
-    pretrain_config: Optional[dict] = None,
+    pretrain_config: Optional[Union[dict, List[dict]]] = None,
     class_weights_path: Optional[str] = None,
+    power_value: float = -0.5,
     label_str2int_path: Optional[str] = None,
     selected_birds: Optional[List[str]] = None,
     use_sampler: bool = False,
+    sampler_with_replacement: bool = False,
+    print_model: bool = False,
 ):
     if check_exp_exists and os.path.exists(os.path.join(exp_name, "checkpoints")):
         raise RuntimeError(f"Folder {exp_name} already exists!")
@@ -213,7 +214,7 @@ def lightning_training(
     print(f"Training Device : {device}")
 
     use_class_weights = class_weights_path is not None
-    if use_class_weights and label_str2int_path is None:
+    if use_class_weights and class_weights_path.endswith(".json") and label_str2int_path is None:
         raise ValueError("Class weights require label_str2int mapping")
     if use_sampler and not use_class_weights:
         raise ValueError("Sampler requires class weights")
@@ -233,11 +234,14 @@ def lightning_training(
         train_dataset = torch.utils.data.ConcatDataset([train_dataset, nocall_dataset])
         is_concat_dataset = True
 
-
     if use_class_weights:
         if class_weights_path == "sqrt":
             labels = pd.Series(train_dataset.targets)
-            class_weights = (labels.value_counts() / labels.value_counts().sum())  ** (-0.5)
+            class_weights = (labels.value_counts() / labels.value_counts().sum()) ** power_value
+            class_weights = class_weights.to_dict()
+        elif class_weights_path == "balanced":
+            labels = pd.Series(train_dataset.targets)
+            class_weights = 1.0 / labels.value_counts()
             class_weights = class_weights.to_dict()
         else:
             class_weights = load_json(class_weights_path)
@@ -245,13 +249,15 @@ def lightning_training(
         pprint(class_weights)
     if use_class_weights and use_sampler:
         if is_concat_dataset:
-            sample_weights = np.array([
-                class_weights[el] for el in list(chain(*[ds.targets for ds in train_dataset.datasets]))
-            ])
+            sample_weights = np.array(
+                [class_weights[el] for el in list(chain(*[ds.targets for ds in train_dataset.datasets]))]
+            )
         else:
             sample_weights = np.array([class_weights[el] for el in train_dataset.targets])
         assert len(sample_weights) == len(train_dataset)
-        sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights))
+        sampler = torch.utils.data.WeightedRandomSampler(
+            sample_weights, len(sample_weights), replacement=sampler_with_replacement
+        )
         print("Sampler Created")
     else:
         sampler = None
@@ -281,8 +287,15 @@ def lightning_training(
     else:
         model = nn_model_class(device=device, **nn_model_config)
 
+    if print_model:
+        print(model)
+
     if pretrain_config is not None:
-        pretrain_checkpoint = create_chkp(**pretrain_config)
+        if isinstance(pretrain_config, list):
+            current_pretrain_config = pretrain_config[fold_id]
+        else:
+            current_pretrain_config = pretrain_config
+        pretrain_checkpoint = create_chkp(**current_pretrain_config)
         print("Missing keys: ", set(model.state_dict().keys()) - set(pretrain_checkpoint))
         print("Extra keys: ", set(pretrain_checkpoint) - set(model.state_dict().keys()))
         model.load_state_dict(pretrain_checkpoint, strict=False)

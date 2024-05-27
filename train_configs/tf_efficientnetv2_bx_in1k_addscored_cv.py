@@ -1,7 +1,8 @@
 from glob import glob
+
 import torch
 
-from code_base.augmentations.transforms import BackgroundNoise
+from code_base.augmentations.transforms import TimeFlip
 from code_base.callbacks import ROC_AUC_Score
 from code_base.datasets import WaveAllFileDataset, WaveDataset
 from code_base.forwards import MultilabelClsForwardLongShort
@@ -23,7 +24,7 @@ CONFIG = {
     "seed": 1243,
     "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_metadata_extended_noduplv1.csv",
     "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/birdclef_2024_5_folds_split_nodupl.npy",
-    "exp_name": "tf_efficientnetv2_b1_in1k_Exp_noamp_64bs_5sec_BackGroundSoundScapeP05_mixupP05_RandomFiltering_balancedSampler_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV1_BCELoss_5Folds_NoDuplsV1",
+    "exp_name": "tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_PowerAugV105_FocalBCELoss_5Folds_NoDuplsV1",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
     "folds": [0, 1, 2, 3, 4],
     "train_function": lightning_training,
@@ -35,25 +36,11 @@ CONFIG = {
             "precompute": PRECOMPUTE,
             "n_cores": 32,
             "debug": DEBUG,
-            "do_mixup": True,
-            "mixup_params": {"prob": 0.5, "alpha": None},
             "segment_len": TRAIN_PERIOD,
             "late_normalize": LATE_NORMALIZE,
-            "sampler_col": "stratify_col",
-            "use_sampler": True,
-            "shuffle": True,
             "use_h5py": True,
-            "late_aug": BackgroundNoise(
-                p=0.5,
-                esc50_root="/home/vova/data/exps/birdclef_2024/my_2023_data/soundscapes_nocall/train_audio",
-                esc50_df_path="/home/vova/data/exps/birdclef_2024/my_2023_data/soundscapes_nocall/v1_no_call_meta_fixed.csv",
-                normalize=True,
-                normalize_chunks=True,
-                load_normalize=True,
-                precompute=False,
-            ),
+            "late_aug": TimeFlip(p=0.5),
         },
-        
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {
             "root": ROOT_PATH,
@@ -68,7 +55,7 @@ CONFIG = {
         },
         "train_dataloader_config": {
             "batch_size": B_S,
-            "shuffle": False,
+            "shuffle": True,
             "drop_last": True,
             "num_workers": 8,
             "pin_memory": True,
@@ -92,16 +79,17 @@ CONFIG = {
                 "normalized": True,
             },
             spec_augment_config={
+                "power_aug": {"power_range": (0.5, 3.0), "p": 0.5, "inplace": True},
                 "freq_mask": {
-                    "mask_max_length": 10,
+                    "mask_max_length": 20,
                     "mask_max_masks": 3,
-                    "p": 0.3,
+                    "p": 0.7,
                     "inplace": True,
                 },
                 "time_mask": {
-                    "mask_max_length": 20,
+                    "mask_max_length": 30,
                     "mask_max_masks": 3,
-                    "p": 0.3,
+                    "p": 0.7,
                     "inplace": True,
                 },
             },
@@ -112,19 +100,23 @@ CONFIG = {
                 "infer_period": TRAIN_PERIOD,
             },
             exportable=True,
+            fixed_amplitude_to_db=True,
         ),
         "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-3),
         "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=int((N_EPOCHS*len_train) * 1.1), T_mult=1, eta_min=1e-6, last_epoch=-1
+            optimizer, T_0=int((N_EPOCHS * len_train) * 1.1), T_mult=1, eta_min=1e-6, last_epoch=-1
         ),
         "scheduler_params": {"interval": "step", "monitor": MAIN_METRIC},
         "forward": lambda: MultilabelClsForwardLongShort(
             loss_type="baseline",
             use_weights=False,
-            batch_aug=RandomFiltering(
-                min_db=-20, is_wave=True, normalize_wave=LATE_NORMALIZE
-            ),
-            use_focal_loss=False,
+            batch_aug=None,
+            use_bce_focal_loss=True,
+            mixup_alpha=0.5,
+            mixup_inf_norm=True,
+            mixup_binarized_tgt=True,
+            mixup_equal_data_w=True,
+            binirize_labels=True,
         ),
         "callbacks": lambda: [
             ROC_AUC_Score(
@@ -153,9 +145,6 @@ CONFIG = {
         "n_checkpoints_to_save": 3,
         "log_every_n_steps": None,
         "debug": DEBUG,
-
-        "label_str2int_path": PATH_TO_JSON_MAPPING,
-        "class_weights_path": "sqrt",
-        "use_sampler": True,
+        "print_model": True,
     },
 }
