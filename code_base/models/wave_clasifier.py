@@ -22,6 +22,8 @@ except:
     print("`LEAF` was not imported")
 
 from ..augmentations.spec_augment import CustomFreqMasking, CustomTimeMasking
+from ..augmentations.spec_lowerhigh_augment import RandomLowerHighFreq
+from ..augmentations.spec_noise_augment import RandomNoise
 from ..augmentations.spec_power_augment import RandomSpecPower
 from .blocks import (
     AmplitudeToDB,
@@ -213,10 +215,18 @@ class WaveCNNAttenClasifier(nn.Module):
             self.spec_augment = []
             if "power_aug" in spec_augment_config:
                 self.spec_augment.append(RandomSpecPower(**spec_augment_config["power_aug"]))
+            if "lower_high_freq" in spec_augment_config:
+                self.spec_augment.append(RandomLowerHighFreq(**spec_augment_config["lower_high_freq"]))
             if "freq_mask" in spec_augment_config:
                 self.spec_augment.append(CustomFreqMasking(**spec_augment_config["freq_mask"]))
             if "time_mask" in spec_augment_config:
                 self.spec_augment.append(CustomTimeMasking(**spec_augment_config["time_mask"]))
+            if "white_noise" in spec_augment_config:
+                spec_augment_config["white_noise"]["noise_type"] = "white"
+                self.spec_augment.append(RandomNoise(**spec_augment_config["white_noise"]))
+            if "bandpass_noise" in spec_augment_config:
+                spec_augment_config["bandpass_noise"]["noise_type"] = "bandpass"
+                self.spec_augment.append(RandomNoise(**spec_augment_config["bandpass_noise"]))
             self.spec_augment = nn.Sequential(*self.spec_augment)
         else:
             self.spec_augment = None
@@ -381,7 +391,6 @@ class WaveCNNAttenClasifier(nn.Module):
             emb = self.backbone(spec)[-1]
         if self.permute_backbone_emb is not None:
             emb = emb.permute(*self.permute_backbone_emb)
-        # import ipdb; ipdb.set_trace()
         if self.atten_smoothing_config is not None:
             B, C, H, W = emb.size()
             emb = emb.reshape(B, C, H * W)

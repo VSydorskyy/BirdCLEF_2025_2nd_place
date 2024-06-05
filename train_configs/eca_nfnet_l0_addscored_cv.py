@@ -2,12 +2,11 @@ from glob import glob
 
 import torch
 
-from code_base.augmentations.transforms import BackgroundNoise, Compose, TimeFlip
+from code_base.augmentations.transforms import TimeFlip
 from code_base.callbacks import ROC_AUC_Score
 from code_base.datasets import WaveAllFileDataset, WaveDataset
 from code_base.forwards import MultilabelClsForwardLongShort
 from code_base.models import RandomFiltering, WaveCNNAttenClasifier
-from code_base.schedulers import GradualWarmupSchedulerV2
 from code_base.train_functions.train_lightning import lightning_training
 
 B_S = 64
@@ -17,17 +16,17 @@ ROOT_PATH = "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_features/"
 LATE_NORMALIZE = True
 MAXIMIZE_METRIC = True
 MAIN_METRIC = "valid_roc_auc"
-PATH_TO_JSON_MAPPING = "/home/vova/data/exps/birdclef_2024/class_mappings/bird2int_2024.json"
+PATH_TO_JSON_MAPPING = "/home/vova/data/exps/birdclef_2024/class_mappings/bird2int_2024_PrevComp_XCIndiaVC50.json"
 PRECOMPUTE = False
 DEBUG = False
 
 CONFIG = {
-    "seed": 42,
-    "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_metadata_extended_noduplv1.csv",
-    "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/birdclef_2024_5_folds_split_nodupl.npy",
-    "exp_name": "eca_nfnet_l0_Exp_noamp_64bs_5sec_PrevCompXCScoredDataNoSecLab_TimeFlip05_FormixupAlpha05_balSamplas2024_AdamW_wd1e6_lr1e5_1e4_0_WarmCosEpoch_Epoch50_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV1",
+    "seed": 1243,
+    "df_path": "/home/vova/data/exps/birdclef_2024/dfs/full_noduplsV3_meta_prev_comps_extended.csv",
+    "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/merged_5_folds_split_noduplV1.npy",
+    "exp_name": "eca_nfnet_l0_Exp_noamp_FixedAmp2Db_64bs_5sec_AllPrevCompDataAndXcIndiaVC50_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_Radamlr1e3_CosBatchLR1e6_Epoch50_SpecAugV205_PaperFocalBCELoss_FullTrain_NoDuplsV5",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
-    "folds": [0, 1, 2, 3, 4],
+    "folds": None,
     "train_function": lightning_training,
     "train_function_args": {
         "train_dataset_class": WaveDataset,
@@ -42,9 +41,9 @@ CONFIG = {
             "use_h5py": True,
             "late_aug": TimeFlip(p=0.5),
             "add_df_paths": [
-                "/home/vova/data/exps/birdclef_2024/dfs/full_noduplsV3_scored_meta_prev_comps_extended_2024SecLabels.csv",
-                "/home/vova/data/exps/birdclef_2024/xeno_canto/dataset_2024_classes/train_metadata_noduplV3_extended_2024SecLabels.csv",
+                "/home/vova/data/exps/birdclef_2024/xeno_canto/dataset_NO2024_classes/train_metadata_noduplV5_extended_india_vc50.csv"
             ],
+            "ignore_setting_dataset_value": True,
             "filename_change_mapping": {
                 "base": "birdclef_2024/train_features/",
                 "comp_2021": "birdclef_2021/train_features/",
@@ -54,10 +53,11 @@ CONFIG = {
                 "a_m_2020": "xeno_canto_bird_recordings_extended_a_m/train_features/",
                 "n_z_2020": "xeno_canto_bird_recordings_extended_n_z/train_features/",
                 "xc_2024_classes": "xeno_canto/dataset_2024_classes/train_features/",
+                "xc_india_vc50": "xeno_canto/dataset_NO2024_classes/train_features/",
             },
-            "sampler_col": "stratify_col",
-            "use_sampler": True,
             "shuffle": True,
+            "use_sampler": True,
+            "sampler_col": "primary_label",
         },
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {
@@ -75,14 +75,14 @@ CONFIG = {
             "batch_size": B_S,
             "shuffle": False,
             "drop_last": True,
-            "num_workers": 32,
+            "num_workers": 8,
             "pin_memory": True,
         },
         "val_dataloader_config": {
             "batch_size": B_S,
             "shuffle": False,
             "drop_last": False,
-            "num_workers": 32,
+            "num_workers": 8,
             "pin_memory": True,
         },
         "nn_model_class": WaveCNNAttenClasifier,
@@ -92,55 +92,52 @@ CONFIG = {
                 "sample_rate": 32000,
                 "n_mels": 128,
                 "f_min": 20,
-                "f_max": 16000,
                 "n_fft": 2048,
                 "hop_length": 512,
                 "normalized": True,
-                "center": True,
-                "pad_mode": "constant",
-                "norm": "slaney",
-                "mel_scale": "slaney",
             },
-            spec_resize=(256, 256),
             spec_augment_config={
                 "freq_mask": {
                     "mask_max_length": 20,
                     "mask_max_masks": 3,
-                    "p": 0.7,
+                    "p": 0.5,
                     "inplace": True,
                 },
                 "time_mask": {
                     "mask_max_length": 30,
                     "mask_max_masks": 3,
-                    "p": 0.7,
+                    "p": 0.5,
                     "inplace": True,
                 },
             },
-            deep_supervision_steps=(3, 4),
-            head_type="Clasifier",
-            head_config={"pool_type": "GeM", "classifier_type": "normed_linear", "classes_num": 188},
+            head_config={
+                "p": 0.5,
+                "num_class": 6478,
+                "train_period": TRAIN_PERIOD,
+                "infer_period": TRAIN_PERIOD,
+            },
             exportable=True,
+            fixed_amplitude_to_db=True,
         ),
-        "optimizer_init": lambda model: torch.optim.AdamW(model.parameters(), lr=1e-5, weight_decay=1e-6),
-        "scheduler_init": lambda optimizer, len_train: GradualWarmupSchedulerV2(
-            optimizer=optimizer,
-            multiplier=10.0,
-            total_epoch=5,
-            after_scheduler=torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=N_EPOCHS - 5),
+        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-3),
+        "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, T_0=int((N_EPOCHS * len_train) * 1.1), T_mult=1, eta_min=1e-6, last_epoch=-1
         ),
-        "scheduler_params": {"interval": "epoch", "monitor": MAIN_METRIC},
+        "scheduler_params": {"interval": "step", "monitor": MAIN_METRIC},
         "forward": lambda: MultilabelClsForwardLongShort(
             loss_type="baseline",
             use_weights=False,
             batch_aug=None,
-            use_bce_focal_loss=True,
+            use_bce_focal_loss_paper=True,
             mixup_alpha=0.5,
-            is_output_dict=False,
+            mixup_inf_norm=True,
+            mixup_binarized_tgt=True,
+            mixup_equal_data_w=True,
             binirize_labels=True,
         ),
         "callbacks": lambda: [
             ROC_AUC_Score(
-                pred_key="logit",
+                pred_key="clipwise_pred_long",
                 loader_names=("valid",),
                 aggr_key="dfidx",
                 use_sigmoid=False,
@@ -165,8 +162,7 @@ CONFIG = {
         "n_checkpoints_to_save": 3,
         "log_every_n_steps": None,
         "debug": DEBUG,
-        "label_str2int_path": PATH_TO_JSON_MAPPING,
-        "class_weights_path": "/home/vova/data/exps/birdclef_2024/sample_weights/sw_in_2024_train.json",
+        "class_weights_path": "sqrt",
         "use_sampler": True,
     },
 }

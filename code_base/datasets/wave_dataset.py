@@ -2,6 +2,7 @@ import gc
 import math
 import os
 import warnings
+from glob import glob
 from os.path import join as pjoin
 from os.path import relpath, splitext
 from time import time
@@ -44,6 +45,8 @@ class WaveDataset(torch.utils.data.Dataset):
         late_aug=None,
         do_mixup=False,
         mixup_params={"prob": 0.5, "alpha": 1.0},
+        do_montage=False,
+        montage_params={"montage_samples": (0, 5), "alpha": 0.5},
         n_cores=None,
         debug=False,
         df_filter_rule=None,
@@ -60,8 +63,12 @@ class WaveDataset(torch.utils.data.Dataset):
         soundscape_pseudo_df_path=None,
         start_from_zero=False,
         ignore_setting_dataset_value=False,
+        dataset_repeat=1,
+        unlabeled_glob=None,
+        unlabeled_params={"mode": "return", "prob": 0.5, "alpha": None},
     ):
         super().__init__()
+        assert unlabeled_params["mode"] in ["return", "mixup"]
         assert timewise_slice_pad < segment_len
         if timewise_col is not None and not use_h5py:
             raise ValueError("timewise_col can be used only with h5py")
@@ -116,7 +123,11 @@ class WaveDataset(torch.utils.data.Dataset):
         self.df = self.df.reset_index(drop=True)
         if label_str2int_mapping_path is not None:
             self.label_str2int = load_json(label_str2int_mapping_path)
+            if do_montage:
+                self.all_birds = set(self.label_str2int.keys())
         else:
+            if do_montage:
+                raise ValueError("Montage requires label_str2int_mapping_path")
             self.label_str2int = None
         try:
             self.df["secondary_labels"] = self.df["secondary_labels"].apply(eval)
@@ -182,9 +193,19 @@ class WaveDataset(torch.utils.data.Dataset):
                 raise ValueError("Mixup with weighted sampling requires `use_sampler=True`")
         self.do_mixup = do_mixup
         self.mixup_params = mixup_params
+        self.do_montage = do_montage
+        self.montage_params = montage_params
 
         self.pos_dtype = pos_dtype
         self.res_type = res_type
+
+        self.dataset_repeat = dataset_repeat
+
+        if unlabeled_glob is not None:
+            self.unlabeled_files = glob(unlabeled_glob)
+        else:
+            self.unlabeled_files = None
+        self.unlabeled_params = unlabeled_params
 
         if self.precompute:
             if n_cores is not None:
@@ -236,7 +257,7 @@ class WaveDataset(torch.utils.data.Dataset):
         self.late_aug = None
 
     def __len__(self):
-        return len(self.df)
+        return len(self.df) * self.dataset_repeat
 
     def _prepare_sample_piece(self, input, end_second=None, sample_slices=None):
         if sample_slices is not None:
@@ -392,6 +413,9 @@ class WaveDataset(torch.utils.data.Dataset):
         return mixup_idx
 
     def __getitem__(self, index: int):
+        if self.dataset_repeat > 1:
+            index = index % len(self.df)
+
         wave, target = self._prepare_sample_target_from_idx(index)
 
         # Mixup/Cutmix/Fmix
@@ -443,10 +467,79 @@ class WaveDataset(torch.utils.data.Dataset):
             if self.late_normalize:
                 wave = librosa.util.normalize(wave)
 
+        if self.do_montage:
+            main_sample_birds = set([self.df[self.target_col].iloc[index]] + self.df[self.sec_target_col].iloc[index])
+            samples_to_sample = np.random.randint(
+                self.montage_params["montage_samples"][0], self.montage_params["montage_samples"][1] + 1
+            )
+            if samples_to_sample > 0:
+                possible_birds = self.all_birds - main_sample_birds
+                chosen_birds = np.random.choice(list(possible_birds), samples_to_sample, replace=False)
+                idxs = [
+                    np.random.choice(np.where(self.df[self.target_col] == bird)[0])
+                    for bird in chosen_birds
+                    if (self.df[self.target_col] == bird).sum() > 0
+                ]
+
+                if len(idxs) > 0:
+
+                    montage_waves, montage_targets = [], []
+                    for idx in idxs:
+                        (
+                            _montage_wave,
+                            _montage_target,
+                        ) = self._prepare_sample_target_from_idx(idx)
+                        montage_waves.append(_montage_wave)
+                        montage_targets.append(_montage_target)
+
+                    mix_weight = np.random.beta(
+                        self.montage_params["alpha"], self.montage_params["alpha"], len(montage_waves) + 1
+                    )
+
+                    mix_weight = mix_weight / mix_weight.sum()
+                    wave = wave * mix_weight[0] + sum(
+                        _wave * _weight for _wave, _weight in zip(montage_waves, mix_weight[1:])
+                    )
+                    if self.late_normalize:
+                        wave = librosa.util.normalize(wave)
+
+                    target = target + sum(montage_targets)
+                    target = torch.clamp(target, min=0, max=1.0)
+
         if self.late_aug is not None:
             wave = self.late_aug(wave)
             if self.late_normalize:
                 wave = librosa.util.normalize(wave)
+
+        if self.unlabeled_files is not None:
+            if self.unlabeled_params["mode"] == "return":
+                random_file = np.random.choice(self.unlabeled_files)
+                with h5py.File(random_file, "r") as f:
+                    unlabeled_wave = self._prepare_sample_piece(
+                        f["au"],
+                        end_second=None,
+                    )
+                if self.late_normalize:
+                    unlabeled_wave = librosa.util.normalize(unlabeled_wave)
+
+                return wave, target, unlabeled_wave
+            elif self.unlabeled_params["mode"] == "mixup":
+                if np.random.binomial(1, self.unlabeled_params["prob"]):
+                    random_file = np.random.choice(self.unlabeled_files)
+                    with h5py.File(random_file, "r") as f:
+                        unlabeled_wave = self._prepare_sample_piece(
+                            f["au"],
+                            end_second=None,
+                        )
+                    if self.unlabeled_params.get("alpha") is not None:
+                        mix_weight = np.random.beta(self.unlabeled_params["alpha"], self.unlabeled_params["alpha"])
+                    else:
+                        mix_weight = 0.5
+                    wave = mix_weight * unlabeled_wave + (1 - mix_weight) * wave
+                    mask = (target > 0).float()
+                else:
+                    mask = torch.ones_like(target)
+                return wave, target, mask
 
         return wave, target
 

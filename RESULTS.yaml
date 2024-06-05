@@ -542,3 +542,156 @@
     Mean Roc Auc: 0.9777525762459138
     OOF Roc Auc: 0.9764926016661052
     Public ONNX 5 Folds 3 SWA: 0.65
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_PowerAugV105_FocalBCELoss_5Folds_NoDuplsV1
+  description: 3 SWA. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9781058554390278, 0.9756495949695072, 0.9827989026285486, 0.9739504967265403, 0.9795265840462191]
+    Mean Roc Auc: 0.9780062867619685
+    OOF Roc Auc: 0.9764379238345406
+    Public ONNX 5 Folds 3 SWA: 0.64
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_MergedData_GoPseudoV2d2SV2_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_RealbalSamplWithRep_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV2
+  description: 3 SWA. Merged Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9815791256075487, 0.9816156134993063, 0.9798173589550605, 0.9793372617211625, 0.9799849050718791]
+    Mean Roc Auc: 0.9804668529709915
+    OOF Roc Auc: 0.9797435571708868
+    Public ONNX 5 Folds 3 SWA: 0.62
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_MergedData_GoPseudoV2d2_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_balSamplWithRep_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV2
+  description: 3 SWA. Merged Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9841893938765426, 0.9855635920866966, 0.9839150994093061, 0.9852401126477691, 0.9830798191905408]
+    Mean Roc Auc: 0.9843976034421711
+    OOF Roc Auc: 0.9834207869752528
+    Public ONNX 5 Folds 3 SWA: 0.61
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_MergedData_GoPseudoV2d2_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_RealbalSamplWithRep_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV2
+  description: 3 SWA. Merged Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9816712789003718, 0.980260283542028, 0.9805511433656703, 0.9793274755993944, 0.9787027163824991]
+    Mean Roc Auc: 0.9801025795579926
+    OOF Roc Auc: 0.9790655876181618
+    Public ONNX 5 Folds 3 SWA: 0.62
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_MergedData_GoPseudoV2d2SV2_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_balSamplWithRep_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV2
+  description: 3 SWA. Merged Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9847974802342058, 0.9862400759567364, 0.9841980540397882, 0.9847381832520016, 0.9839341637742484]
+    Mean Roc Auc: 0.984781591451396
+    OOF Roc Auc: 0.9839069844265611
+    Public ONNX 5 Folds 3 SWA: 0.62
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_MergedData_TuneStartF3em4_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_balSamplWithRep_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV2
+  description: 3 SWA. Merged Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9844974354411646, 0.9881220380949428, 0.9859980248102649, 0.9851773344767966, 0.9838998482674601]
+    Mean Roc Auc: 0.9855389362181258
+    OOF Roc Auc: 0.9848280546899517
+    Public ONNX 5 Folds 3 SWA: 0.64
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_64bs_5sec_MergedData_TuneStartF3em4FromAllPCDAndXcIVC50_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_balSamplWithRep_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV2
+  description: 3 SWA. Merged Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9818833957390068, 0.981013216273061, 0.9778256507209214, 0.9808895145439026, 0.9820432777989705]
+    Mean Roc Auc: 0.9807310110151726
+    OOF Roc Auc: 0.9803697935410962
+    Public ONNX 5 Folds 3 SWA: 0.6
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_64bs_5sec_MergedData_TuneStartF3em4FromAllPCDAndXcIVC50V2_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_balSamplWithRep_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV2
+  description: 3 SWA. Merged Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9843425695054446, 0.9830467380437187, 0.9830141541027531, 0.9818196214013629, 0.9830167505367275]
+    Mean Roc Auc: 0.9830479667180014
+    OOF Roc Auc: 0.9826063114815239
+    Public ONNX 5 Folds 3 SWA: 0.63
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV205_LHF05_FocalBCELoss_5Folds_NoDuplsV1
+  description: 3 SWA. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9784527938727622, 0.978487763663248, 0.9803318188701425, 0.976476890879476, 0.9808626016998965]
+    Mean Roc Auc: 0.9789223737971049
+    OOF Roc Auc: 0.9772401715883707
+    Public ONNX 5 Folds 3 SWA: 0.65
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_FormixupAlpha05NormedBinTgt10X_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV1
+  description: 3 SWA. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9437860385678548, 0.9383121986832925, 0.9501093652585934, 0.937121293437768, 0.9417911660853862]
+    Mean Roc Auc: 0.942224012406579
+    OOF Roc Auc: 0.9389680769859553
+    Public ONNX 5 Folds 3 SWA: 0.66
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_FormixupAlpha05NormedBinTgtEqW10X_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV1
+  description: 3 SWA. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9465279902737991, 0.9445832338338532, 0.9546443594543698, 0.9386473979958017, 0.9468591099030523]
+    Mean Roc Auc: 0.9462524182921752
+    OOF Roc Auc: 0.9425256584140367
+    Public ONNX 5 Folds 3 SWA: 0.65
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_FormixupAlpha05NormedBinTgt30X_Radamlr1e3_CosBatchLR1e6_Epoch30_LHF05_FocalBCELoss_5Folds_NoDuplsV1
+  description: 3 SWA. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.8703706803747979, 0.8523008630502971, 0.8681646334998132, 0.8637668786669451, 0.8551837193079127]
+    Mean Roc Auc: 0.8619573549799531
+    OOF Roc Auc: 0.8475381769793464
+    Public ONNX 5 Folds 3 SWA: 0.61
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_FormixupAlpha05NormedBinTgt10X_Radamlr1e3_CosBatchLR1e6_Epoch30_FocalBCELoss_5Folds_NoDuplsV1
+  description: 3 SWA. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9439668509950109, 0.936854741493839, 0.950627582265579, 0.9401237101539878, 0.9438177421431061]
+    Mean Roc Auc: 0.9430781254103046
+    OOF Roc Auc: 0.937991863630494
+    Public ONNX 5 Folds 3 SWA: 0.66
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_FormixupAlpha05Normed10X_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds_NoDuplsV1
+  description: 3 SWA. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9613238253775913, 0.9554511640510717, 0.9620085028310772, 0.9524511155963336, 0.9580240532901517]
+    Mean Roc Auc: 0.957851732229245
+    OOF Roc Auc: 0.9547219560907543
+    Public ONNX 5 Folds 3 SWA: 0.65
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2DbAmin1e6_64bs_5sec_TimeFlip05_FormixupAlpha05NormedBinTgt30X_Radamlr1e3_CosBatchLR1e6_Epoch30_FocalBCELoss_5Folds_NoDuplsV1
+  description: 3 SWA. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.8567529586200542, 0.8338555661955063, 0.8654845981832668, 0.8493117093228182, 0.8235003579948159]
+    Mean Roc Auc: 0.8457810380632923
+    OOF Roc Auc: 0.8279577085265544
+    Public ONNX 5 Folds 3 SWA: 0.61
+-
+  models:
+    -
+  description: 3 SWA. No Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc:
+    Mean Roc Auc:
+    OOF Roc Auc:
+    Public ONNX 5 Folds 3 SWA:
+-
+  models:
+    - tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_MergedData_TimeFlip05_FormixupAlpha05NormedBinTgt10X_balSamplWithRep_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_5Folds
+  description: 3 SWA. Merged Duplicates V1. Aggregated metric
+  results:
+    Folds Roc Auc: [0.9668486060766437, 0.9637492252820287, 0.9639146338030798, 0.9681283178332816, 0.9651017681912244]
+    Mean Roc Auc: 0.9655485102372516
+    OOF Roc Auc: 0.9638740143436644
+    Public ONNX 5 Folds 3 SWA: 0.65

@@ -24,7 +24,7 @@ CONFIG = {
     "seed": 1243,
     "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/merged_train_metadata_extended_noduplv2.csv",
     "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/merged_5_folds_split_noduplV1.npy",
-    "exp_name": "maxvit_rmlp_nano_rw_256_sw_in1k_Exp_FullAtten_noamp_FixedAmp2Db_64bs_5sec_MergedData_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_balSamplWithRep_Radamlr3e4_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_Full_NoDuplsV2",
+    "exp_name": "maxvit_rmlp_nano_rw_256_sw_in1k_Exp_FullAtten_noamp_FixedAmp2Db_Amin1e6_64bs_5sec_MergedData_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_balSamplWithRep_Radamlr3e4_CosBatchLR1e6_Epoch30_SpecAugV207_FocalBCELoss_Full_NoDuplsV2",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
     "folds": None,
     "train_function": lightning_training,
@@ -131,6 +131,7 @@ CONFIG = {
             },
             exportable=True,
             fixed_amplitude_to_db=True,
+            amin=1e-6,
         ),
         "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=3e-4),
         "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(

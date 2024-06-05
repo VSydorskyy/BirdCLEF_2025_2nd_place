@@ -254,6 +254,8 @@ def lightning_training(
             )
         else:
             sample_weights = np.array([class_weights[el] for el in train_dataset.targets])
+        if hasattr(train_dataset, "dataset_repeat") and train_dataset.dataset_repeat > 1:
+            sample_weights = np.concatenate([sample_weights for _ in range(train_dataset.dataset_repeat)])
         assert len(sample_weights) == len(train_dataset)
         sampler = torch.utils.data.WeightedRandomSampler(
             sample_weights, len(sample_weights), replacement=sampler_with_replacement

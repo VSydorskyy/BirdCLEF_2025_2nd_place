@@ -11,7 +11,7 @@ from code_base.train_functions.train_lightning import lightning_training
 
 B_S = 64
 TRAIN_PERIOD = 5.0
-N_EPOCHS = 30
+N_EPOCHS = 50
 ROOT_PATH = "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_features/"
 LATE_NORMALIZE = True
 MAXIMIZE_METRIC = True
@@ -24,7 +24,7 @@ CONFIG = {
     "seed": 1243,
     "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_metadata_extended_noduplv1.csv",
     "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/birdclef_2024_5_folds_split_nodupl.npy",
-    "exp_name": "tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_FormixupAlpha05NormedBinTgtEqW_Radamlr1e3_CosBatchLR1e6_Epoch30_SpecAugV207_PowerAugV105_FocalBCELoss_5Folds_NoDuplsV1",
+    "exp_name": "tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_Montage0til5A05_UnlabeledP09_Radamlr1e3_CosBatchLR1e6_Epoch50_FocalBCELoss_5Folds_NoDuplsV1",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
     "folds": [0, 1, 2, 3, 4],
     "train_function": lightning_training,
@@ -40,6 +40,10 @@ CONFIG = {
             "late_normalize": LATE_NORMALIZE,
             "use_h5py": True,
             "late_aug": TimeFlip(p=0.5),
+            "do_montage": True,
+            "montage_params": {"montage_samples": (0, 5), "alpha": 0.5},
+            "unlabeled_glob": "/home/vova/data/exps/birdclef_2024/birdclef_2024/unlabeled_soundscapes_features/*.hdf5",
+            "unlabeled_params": {"mode": "mixup", "prob": 0.9, "alpha": None},
         },
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {
@@ -78,21 +82,6 @@ CONFIG = {
                 "hop_length": 512,
                 "normalized": True,
             },
-            spec_augment_config={
-                "power_aug": {"power_range": (0.5, 3.0), "p": 0.5, "inplace": True},
-                "freq_mask": {
-                    "mask_max_length": 20,
-                    "mask_max_masks": 3,
-                    "p": 0.7,
-                    "inplace": True,
-                },
-                "time_mask": {
-                    "mask_max_length": 30,
-                    "mask_max_masks": 3,
-                    "p": 0.7,
-                    "inplace": True,
-                },
-            },
             head_config={
                 "p": 0.5,
                 "num_class": 188,
@@ -108,15 +97,7 @@ CONFIG = {
         ),
         "scheduler_params": {"interval": "step", "monitor": MAIN_METRIC},
         "forward": lambda: MultilabelClsForwardLongShort(
-            loss_type="baseline",
-            use_weights=False,
-            batch_aug=None,
-            use_bce_focal_loss=True,
-            mixup_alpha=0.5,
-            mixup_inf_norm=True,
-            mixup_binarized_tgt=True,
-            mixup_equal_data_w=True,
-            binirize_labels=True,
+            loss_type="baseline", use_weights=False, batch_aug=None, use_bce_focal_loss=True, use_masked_loss=True
         ),
         "callbacks": lambda: [
             ROC_AUC_Score(
@@ -145,6 +126,5 @@ CONFIG = {
         "n_checkpoints_to_save": 3,
         "log_every_n_steps": None,
         "debug": DEBUG,
-        "print_model": True,
     },
 }
