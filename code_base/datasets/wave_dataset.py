@@ -66,6 +66,8 @@ class WaveDataset(torch.utils.data.Dataset):
         dataset_repeat=1,
         unlabeled_glob=None,
         unlabeled_params={"mode": "return", "prob": 0.5, "alpha": None},
+        right_bound_main=None,
+        right_bound_unlabeled=None,
     ):
         super().__init__()
         assert unlabeled_params["mode"] in ["return", "mixup"]
@@ -201,6 +203,9 @@ class WaveDataset(torch.utils.data.Dataset):
 
         self.dataset_repeat = dataset_repeat
 
+        self.right_bound_main = right_bound_main
+        self.right_bound_unlabeled = right_bound_unlabeled
+
         if unlabeled_glob is not None:
             self.unlabeled_files = glob(unlabeled_glob)
         else:
@@ -259,7 +264,7 @@ class WaveDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.df) * self.dataset_repeat
 
-    def _prepare_sample_piece(self, input, end_second=None, sample_slices=None):
+    def _prepare_sample_piece(self, input, end_second=None, sample_slices=None, max_sampling_second=None):
         if sample_slices is not None:
             if input.shape[0] < self.segment_len:
                 pad_len = self.segment_len - input.shape[0]
@@ -306,7 +311,11 @@ class WaveDataset(torch.utils.data.Dataset):
             if self.start_from_zero:
                 start = 0
             else:
-                start = np.random.randint(0, input.shape[0] - self.segment_len)
+                if max_sampling_second is not None:
+                    right_bound = min(input.shape[0], int(max_sampling_second * self.sample_rate)) - self.segment_len
+                else:
+                    right_bound = input.shape[0] - self.segment_len
+                start = np.random.randint(0, right_bound)
             return (
                 np.array(input[start : start + self.segment_len])
                 if self.use_h5py
@@ -354,12 +363,14 @@ class WaveDataset(torch.utils.data.Dataset):
                             f["au"],
                             end_second=end_second,
                             sample_slices=sample_slices,
+                            max_sampling_second=self.right_bound_main,
                         )
                     else:
                         sample_slices = None
                         wave = self._prepare_sample_piece(
                             f["au"],
                             end_second=end_second,
+                            max_sampling_second=self.right_bound_main,
                         )
             else:
                 if self.precompute:
@@ -378,7 +389,7 @@ class WaveDataset(torch.utils.data.Dataset):
                 if self.pos_dtype is not None:
                     wave = wave.astype(np.float32)
 
-                wave = self._prepare_sample_piece(wave)
+                wave = self._prepare_sample_piece(wave, max_sampling_second=self.right_bound_main)
 
             main_tgt = self.df[self.target_col].iloc[idx]
             if self.sec_target_col is not None:
@@ -518,6 +529,7 @@ class WaveDataset(torch.utils.data.Dataset):
                     unlabeled_wave = self._prepare_sample_piece(
                         f["au"],
                         end_second=None,
+                        max_sampling_second=self.right_bound_unlabeled,
                     )
                 if self.late_normalize:
                     unlabeled_wave = librosa.util.normalize(unlabeled_wave)
@@ -530,12 +542,16 @@ class WaveDataset(torch.utils.data.Dataset):
                         unlabeled_wave = self._prepare_sample_piece(
                             f["au"],
                             end_second=None,
+                            max_sampling_second=self.right_bound_unlabeled,
                         )
                     if self.unlabeled_params.get("alpha") is not None:
                         mix_weight = np.random.beta(self.unlabeled_params["alpha"], self.unlabeled_params["alpha"])
                     else:
                         mix_weight = 0.5
+
                     wave = mix_weight * unlabeled_wave + (1 - mix_weight) * wave
+                    if self.late_normalize:
+                        wave = librosa.util.normalize(wave)
                     mask = (target > 0).float()
                 else:
                     mask = torch.ones_like(target)

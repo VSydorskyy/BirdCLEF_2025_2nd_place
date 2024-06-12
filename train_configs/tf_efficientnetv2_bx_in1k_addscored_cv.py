@@ -1,6 +1,7 @@
 from glob import glob
 
 import torch
+from transformers import get_cosine_schedule_with_warmup
 
 from code_base.augmentations.transforms import TimeFlip
 from code_base.callbacks import ROC_AUC_Score
@@ -24,9 +25,9 @@ CONFIG = {
     "seed": 1243,
     "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_metadata_extended_noduplv1.csv",
     "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/birdclef_2024_5_folds_split_nodupl.npy",
-    "exp_name": "tf_efficientnetv2_b1_in1k_Exp_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_Montage0til5A05_UnlabeledP09_Radamlr1e3_CosBatchLR1e6_Epoch50_FocalBCELoss_5Folds_NoDuplsV1",
+    "exp_name": "tf_efficientnetv2_s_in21k_Exp_FromPretrainEnc_noamp_FixedAmp2Db_64bs_5sec_TimeFlip05_Montage0til5A05_UnlabeledP05_Radamlr1e3_CosBatchLR1e6_Epoch50_FocalBCELoss_FullData_NoDuplsV1",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
-    "folds": [0, 1, 2, 3, 4],
+    "folds": None,
     "train_function": lightning_training,
     "train_function_args": {
         "train_dataset_class": WaveDataset,
@@ -43,7 +44,7 @@ CONFIG = {
             "do_montage": True,
             "montage_params": {"montage_samples": (0, 5), "alpha": 0.5},
             "unlabeled_glob": "/home/vova/data/exps/birdclef_2024/birdclef_2024/unlabeled_soundscapes_features/*.hdf5",
-            "unlabeled_params": {"mode": "mixup", "prob": 0.9, "alpha": None},
+            "unlabeled_params": {"mode": "mixup", "prob": 0.5, "alpha": None},
         },
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {
@@ -73,7 +74,7 @@ CONFIG = {
         },
         "nn_model_class": WaveCNNAttenClasifier,
         "nn_model_config": dict(
-            backbone="tf_efficientnetv2_b1.in1k",
+            backbone="tf_efficientnetv2_s_in21k",
             mel_spec_paramms={
                 "sample_rate": 32000,
                 "n_mels": 128,
@@ -92,8 +93,8 @@ CONFIG = {
             fixed_amplitude_to_db=True,
         ),
         "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-3),
-        "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=int((N_EPOCHS * len_train) * 1.1), T_mult=1, eta_min=1e-6, last_epoch=-1
+        "scheduler_init": lambda optimizer, len_train: get_cosine_schedule_with_warmup(
+            optimizer, num_warmup_steps=len_train, num_training_steps=int((N_EPOCHS * len_train) * 1.3)
         ),
         "scheduler_params": {"interval": "step", "monitor": MAIN_METRIC},
         "forward": lambda: MultilabelClsForwardLongShort(
@@ -126,5 +127,8 @@ CONFIG = {
         "n_checkpoints_to_save": 3,
         "log_every_n_steps": None,
         "debug": DEBUG,
+        "pretrain_config": {
+            "backbone_path": "/home/vova/data/exps/birdclef_2024/kaggle_datasets/bird_clef_2024_addones/pretrained_backbones/tf_efficientnetv2_s_in21k_Pretrainversion1.pth",
+        },
     },
 }

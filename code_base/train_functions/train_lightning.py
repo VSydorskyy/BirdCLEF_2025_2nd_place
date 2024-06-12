@@ -297,10 +297,14 @@ def lightning_training(
             current_pretrain_config = pretrain_config[fold_id]
         else:
             current_pretrain_config = pretrain_config
-        pretrain_checkpoint = create_chkp(**current_pretrain_config)
-        print("Missing keys: ", set(model.state_dict().keys()) - set(pretrain_checkpoint))
-        print("Extra keys: ", set(pretrain_checkpoint) - set(model.state_dict().keys()))
-        model.load_state_dict(pretrain_checkpoint, strict=False)
+        if "backbone_path" in current_pretrain_config:
+            backbone_state_dict = torch.load(current_pretrain_config["backbone_path"], map_location="cpu")
+            model.backbone.load_state_dict(backbone_state_dict)
+        else:
+            pretrain_checkpoint = create_chkp(**current_pretrain_config)
+            print("Missing keys: ", set(model.state_dict().keys()) - set(pretrain_checkpoint))
+            print("Extra keys: ", set(pretrain_checkpoint) - set(model.state_dict().keys()))
+            model.load_state_dict(pretrain_checkpoint, strict=False)
 
     for k in loaders.keys():
         print(f"{k} Loader Len = {len(loaders[k])}")

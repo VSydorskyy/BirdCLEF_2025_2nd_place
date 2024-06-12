@@ -39,6 +39,7 @@ pytorch-toolbelt = "^0.6.3"
 colorednoise = "^2.2.0"
 warmup-scheduler = "^0.3"
 folium = "^0.16.0"
+transformers = "^4.41.2"
 
 
 [build-system]
