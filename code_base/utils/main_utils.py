@@ -3,6 +3,7 @@ from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
+import torch
 import yaml
 from joblib import Parallel
 from tqdm import tqdm
@@ -69,13 +70,14 @@ def load_yaml(path: str) -> Mapping[str, Any]:
         loaded_dict = yaml.load(read_file, Loader=yaml.FullLoader)
     return loaded_dict
 
+
 def sample_uniformly_np_index(merged_intervals):
     # Calculate the total span of all intervals in terms of seconds
     total_points = sum(interval[1] - interval[0] for interval in merged_intervals)
 
     # Generate a random position within the total span as a float
     random_position = np.random.randint(0, total_points)
-    
+
     # Map the random position to an actual interval
     current_position = 0
     for index, (start, end) in enumerate(merged_intervals):
@@ -87,3 +89,14 @@ def sample_uniformly_np_index(merged_intervals):
         current_position += interval_length
 
     raise RuntimeError("sample_uniformly_np_index was not able to pick chunk")
+
+
+def get_device():
+    """
+    Get device to use
+    """
+    if torch.cuda.is_available():
+        device = "cuda"
+    else:
+        device = "cpu"
+    return device

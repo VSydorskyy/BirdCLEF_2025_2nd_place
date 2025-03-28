@@ -7,7 +7,7 @@ echo "Checkpoint name: $2";
 postfix="${4:-}"
 
 # Directory paths now include the postfix
-dest_dir="/home/vova/data/exps/birdclef_2024/kaggle_datasets/bird_clef_2024_models/${1}${postfix}"
+dest_dir="/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/kaggle_datasets/bird_clef_2025_models/${1}${postfix}"
 
 # Create directories
 mkdir -p "${dest_dir}"
@@ -26,7 +26,7 @@ do
 done
 
 # Navigate to the dataset directory and zip the directory
-cd "/home/vova/data/exps/birdclef_2024/kaggle_datasets/bird_clef_2024_models"
+cd "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/kaggle_datasets/bird_clef_2025_models"
 zip -r "${1}${postfix}.zip" "${1}${postfix}"
 rm -rf "${1}${postfix}"
 

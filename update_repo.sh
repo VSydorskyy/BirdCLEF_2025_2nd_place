@@ -1,13 +1,22 @@
-
 #!/bin/bash
 
-rm /home/vova/data/exps/birdclef_2024/kaggle_datasets/bird_clef_2024_code/main_folder.zip -rf
-rm /home/vova/data/exps/birdclef_2024/kaggle_datasets/bird_clef_2024_code/main_folder -rf
-mkdir /home/vova/data/exps/birdclef_2024/kaggle_datasets/bird_clef_2024_code/main_folder
-cp code_base /home/vova/data/exps/birdclef_2024/kaggle_datasets/bird_clef_2024_code/main_folder/ -r
-cp pyproject.toml /home/vova/data/exps/birdclef_2024/kaggle_datasets/bird_clef_2024_code/main_folder/
-cp poetry.lock /home/vova/data/exps/birdclef_2024/kaggle_datasets/bird_clef_2024_code/main_folder/
-cd /home/vova/data/exps/birdclef_2024/kaggle_datasets/bird_clef_2024_code
-zip main_folder.zip main_folder -r
-rm main_folder -rf
+BASE_DIR="/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/kaggle_datasets/bird_clef_2025_code"
+FOLDER_NAME="main_folder"
+ZIP_NAME="$FOLDER_NAME.zip"
+TARGET="$BASE_DIR/$FOLDER_NAME"
+
+# Cleanup old files
+rm -rf "$BASE_DIR/$ZIP_NAME" "$TARGET"
+
+# Create folder and copy files
+mkdir -p "$TARGET"
+cp -r code_base "$TARGET/"
+cp pyproject.toml poetry.lock "$TARGET/"
+
+# Zip and cleanup
+cd "$BASE_DIR"
+zip -r "$ZIP_NAME" "$FOLDER_NAME"
+rm -rf "$FOLDER_NAME"
+
+# Upload to Kaggle
 kaggle datasets version -p ./ -m "new code version"

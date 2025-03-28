@@ -55,7 +55,7 @@ class WaveDataset(torch.utils.data.Dataset):
         load_normalize=False,
         use_sampler=False,
         shuffle=False,
-        res_type="kaiser_best",
+        res_type="soxr_hq",
         pos_dtype=None,
         sampler_col=None,
         use_h5py=False,
@@ -83,14 +83,14 @@ class WaveDataset(torch.utils.data.Dataset):
         if soundscape_pseudo_df_path is not None and not use_h5py:
             raise ValueError("Soundscape pseudo df can be used only with h5py")
         if not ignore_setting_dataset_value:
-            df["dataset"] = "base"
+            df["data_root_id"] = "base"
         if add_df_paths is not None:
             cols_to_take = [
                 target_col,
                 sec_target_col,
                 name_col,
                 "duration_s",
-                "dataset",
+                "data_root_id",
                 "url",
             ]
             cols_to_take = [el for el in cols_to_take if el is not None]
@@ -112,8 +112,8 @@ class WaveDataset(torch.utils.data.Dataset):
             df = pd.concat([df, add_merged_df], axis=0).reset_index(drop=True)
         if soundscape_pseudo_df_path is not None:
             soundscape_pseudo_df = pd.read_csv(soundscape_pseudo_df_path)
-            if "dataset" not in soundscape_pseudo_df.columns:
-                soundscape_pseudo_df["dataset"] = "soundscape"
+            if "data_root_id" not in soundscape_pseudo_df.columns:
+                soundscape_pseudo_df["data_root_id"] = "soundscape"
             soundscape_pseudo_df["final_second"] = soundscape_pseudo_df["row_id"].apply(lambda x: int(x.split("_")[-1]))
             df = pd.concat([df, soundscape_pseudo_df], axis=0).reset_index(drop=True)
         if df_filter_rule is not None:
@@ -144,13 +144,13 @@ class WaveDataset(torch.utils.data.Dataset):
         if filename_change_mapping is not None:
             self.df[f"{name_col}_with_root"] = self.df.apply(
                 lambda row: row[f"{name_col}_with_root"].replace(
-                    filename_change_mapping["base"], filename_change_mapping[row["dataset"]]
+                    filename_change_mapping["base"], filename_change_mapping[row["data_root_id"]]
                 ),
                 axis=1,
             )
         if replace_pathes is not None:
             self.df[f"{name_col}_with_root"] = self.df[f"{name_col}_with_root"].apply(
-                lambda x: pjoin(replace_pathes[1], relpath(x, replace_pathes[0]))
+                lambda x: x.replace(replace_pathes[0], replace_pathes[1])
             )
 
         self.target_col = target_col
@@ -346,11 +346,11 @@ class WaveDataset(torch.utils.data.Dataset):
             target = torch.zeros(len(self.label_str2int)).float()
         else:
             if self.use_h5py:
-                with h5py.File(self.df[self.name_col].iloc[idx], "r") as f:
+                with h5py.File(self.df[self.name_col].iloc[idx], "r", swmr=True) as f:
                     # Very messy but let it be
                     if (
-                        self.df["dataset"].iloc[idx] is not None
-                        and self.df["dataset"].iloc[idx].startswith("soundscape")
+                        self.df["data_root_id"].iloc[idx] is not None
+                        and self.df["data_root_id"].iloc[idx].startswith("soundscape")
                         and self.timewise_col is None
                     ):
                         end_second = self.df["final_second"].iloc[idx]
@@ -525,7 +525,7 @@ class WaveDataset(torch.utils.data.Dataset):
         if self.unlabeled_files is not None:
             if self.unlabeled_params["mode"] == "return":
                 random_file = np.random.choice(self.unlabeled_files)
-                with h5py.File(random_file, "r") as f:
+                with h5py.File(random_file, "r", swmr=True) as f:
                     unlabeled_wave = self._prepare_sample_piece(
                         f["au"],
                         end_second=None,
@@ -538,7 +538,7 @@ class WaveDataset(torch.utils.data.Dataset):
             elif self.unlabeled_params["mode"] == "mixup":
                 if np.random.binomial(1, self.unlabeled_params["prob"]):
                     random_file = np.random.choice(self.unlabeled_files)
-                    with h5py.File(random_file, "r") as f:
+                    with h5py.File(random_file, "r", swmr=True) as f:
                         unlabeled_wave = self._prepare_sample_piece(
                             f["au"],
                             end_second=None,
@@ -598,6 +598,7 @@ class WaveAllFileDataset(WaveDataset):
         load_normalize=False,
         late_normalize=False,
         use_h5py=False,
+        replace_pathes=None,
         # In BirdClef Comp, it is claimed that all samples in 32K sr
         # we will just validate it, without doing resampling
         validate_sr=None,
@@ -637,6 +638,7 @@ class WaveAllFileDataset(WaveDataset):
             do_noisereduce=do_noisereduce,
             late_normalize=late_normalize,
             use_h5py=use_h5py,
+            replace_pathes=replace_pathes,
             ignore_setting_dataset_value=ignore_setting_dataset_value,
         )
         self.validate_sr = validate_sr
@@ -780,7 +782,7 @@ class WaveAllFileDataset(WaveDataset):
         end = start + self.segment_len
 
         if self.use_h5py:
-            with h5py.File(self.df[self.name_col].iloc[dfidx], "r") as f:
+            with h5py.File(self.df[self.name_col].iloc[dfidx], "r", swmr=True) as f:
                 if self.hard_slicing:
                     wave = self._prepare_sample_piece_hard(f["au"], start=start, end=map_dict["end"])
                 else:

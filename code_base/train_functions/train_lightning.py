@@ -8,6 +8,7 @@ import lightning as L
 import numpy as np
 import pandas as pd
 import torch
+import wandb
 from lightning.pytorch import loggers as pl_loggers
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 
@@ -179,11 +180,11 @@ def lightning_training(
     main_metric: str,
     metric_mode: str,
     checkpoint_callback_params: dict = {},
-    tensorboard_logger_params: dict = {},
+    wandb_logger_params: dict = {},
     trainer_params: dict = {},
     precision_mode: str = "32-true",
     n_checkpoints_to_save: int = 3,
-    log_every_n_steps: int = 100,
+    log_every_n_steps: int = 3,
     debug: bool = False,
     check_exp_exists: bool = False,
     train_strategy: str = "auto",
@@ -354,16 +355,21 @@ def lightning_training(
     if callbacks is not None:
         all_callbacks += callbacks()
 
-    tensorboard_logger = pl_loggers.TensorBoardLogger(
-        save_dir=os.path.join(exp_name, "tensorboard"),
-        **tensorboard_logger_params,
+    # Make sure that exp_name starts with "logdirs/"
+    assert exp_name.startswith("logdirs/")
+    os.makedirs(os.path.join(exp_name, "wandb"), exist_ok=False)
+    wandb_logger = pl_loggers.WandbLogger(
+        save_dir=exp_name,
+        # Remove logdirs/ from the name
+        name="/".join(exp_name.split("/")[1:]),
+        **wandb_logger_params,
     )
     trainer = L.Trainer(
         devices=-1,
         precision=precision_mode,
         strategy=train_strategy,
         max_epochs=n_epochs,
-        logger=tensorboard_logger,
+        logger=wandb_logger,
         log_every_n_steps=log_every_n_steps,
         callbacks=all_callbacks,
         **trainer_params,
@@ -372,3 +378,5 @@ def lightning_training(
         trainer.fit(model=lightning_model, train_dataloaders=loaders["train"], val_dataloaders=loaders["valid"])
     else:
         trainer.fit(model=lightning_model, train_dataloaders=loaders["train"])
+
+    wandb.finish()

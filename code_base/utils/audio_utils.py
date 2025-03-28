@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import librosa
+import torchaudio
 
 try:
     import noisereduce as nr
@@ -51,7 +52,7 @@ def load_pp_audio(
     normalize=True,
     do_noisereduce=False,
     pos_dtype=None,
-    res_type="kaiser_best",
+    res_type="soxr_hq",
     validate_sr=None,
 ):
     # assert sr == 32_000
@@ -84,8 +85,7 @@ def parallel_librosa_load(
 ):
     assert return_sr or return_audio
     complete_out = ProgressParallel(n_jobs=n_cores, total=len(audio_pathes))(
-        delayed(get_librosa_load(do_normalize=do_normalize, **kwargs))(el_path)
-        for el_path in audio_pathes
+        delayed(get_librosa_load(do_normalize=do_normalize, **kwargs))(el_path) for el_path in audio_pathes
     )
     if return_sr and return_audio:
         return complete_out
@@ -93,3 +93,44 @@ def parallel_librosa_load(
         return [el[0] for el in complete_out]
     elif return_sr:
         return [el[1] for el in complete_out]
+
+
+def get_audio_metadata(file_path: str):
+    """
+    Extract metadata from an audio file using torchaudio.
+
+    Args:
+        file_path (str): Path to the audio file.
+
+    Returns:
+        dict: Metadata containing sample rate, duration, channels, bit depth, and encoding format.
+    """
+    try:
+        # Get basic metadata
+        metadata = torchaudio.info(file_path)
+
+        # Extract key information
+        sample_rate = metadata.sample_rate
+        num_channels = metadata.num_channels
+        num_frames = metadata.num_frames
+        duration = num_frames / sample_rate if sample_rate else None
+
+        # Additional metadata (if available)
+        bit_depth = getattr(metadata, "bits_per_sample", None)  # Only available for certain formats
+        encoding = getattr(metadata, "encoding", None)  # Available for some formats
+
+        return {
+            "sample_rate": sample_rate,
+            "duration_s": duration,
+            "num_channels": num_channels,
+            "bit_depth": bit_depth,
+            "encoding": encoding,
+        }
+    except:
+        return {
+            "sample_rate": None,
+            "duration_s": None,
+            "num_channels": None,
+            "bit_depth": None,
+            "encoding": None,
+        }

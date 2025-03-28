@@ -197,7 +197,8 @@ class MultilabelClsForwardLongShort(nn.Module):
                     self.batch_aug.to(wave.device)
                     self.batch_aug_device_is_set = True
                 wave = self.batch_aug(wave)
-                unlabeled_wave = self.batch_aug(unlabeled_wave)
+                if self.use_unlabeled_masking:
+                    unlabeled_wave = self.batch_aug(unlabeled_wave)
             if self.mixup_alpha is not None:
                 wave, labels = self.mixup(wave, labels)
             if self.binirize_labels:

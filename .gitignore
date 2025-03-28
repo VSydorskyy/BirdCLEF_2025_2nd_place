@@ -6,7 +6,6 @@ logdirs
 .venv
 .api_temp
 excepted_birds.json
-*xeno-canto-py*
 notebooks/old_notebooks
 all_xeno_canto_species.json
 notebooks/chirp
@@ -14,3 +13,4 @@ notebooks/empty_some_space.ipynb
 google_bird_predictions
 pseudo
 predictions
+./data
