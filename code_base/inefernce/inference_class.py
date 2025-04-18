@@ -86,9 +86,11 @@ class BirdsInference:
             return x
 
     def _model_forward(
-        self, nn_model, wave, 
-        is_onnx_model=False, 
-        is_openvino_model=False, 
+        self,
+        nn_model,
+        wave,
+        is_onnx_model=False,
+        is_openvino_model=False,
         is_google_model=False,
         google_postprocess=None,
     ):
@@ -104,7 +106,7 @@ class BirdsInference:
             logits = torch.from_numpy(nn_model([wave.numpy()])[nn_model.output(0)])
         elif is_google_model:
             if self.device == "cuda":
-                with tf.device('/gpu:0'):
+                with tf.device("/gpu:0"):
                     google_model_output = nn_model.infer_tf(wave.numpy())
                     logits = google_postprocess(google_model_output)
             else:
@@ -152,8 +154,9 @@ class BirdsInference:
                     logits = []
                     for one_nn_model in nn_model:
                         logits_ = self._model_forward(
-                            one_nn_model, wave, 
-                            is_onnx_model=is_onnx_model, 
+                            one_nn_model,
+                            wave,
+                            is_onnx_model=is_onnx_model,
                             is_openvino_model=is_openvino_model,
                             is_google_model=is_google_model,
                             google_postprocess=google_postprocess,
@@ -197,8 +200,10 @@ class BirdsInference:
         return all_tgts, all_preds
 
     def _model_forward_test(
-        self, nn_models, wave, 
-        is_onnx_model=False, 
+        self,
+        nn_models,
+        wave,
+        is_onnx_model=False,
         is_openvino_model=False,
         is_google_model=False,
         google_postprocess=None,
@@ -218,12 +223,19 @@ class BirdsInference:
                 {"input": wave.numpy()},
             )[0]
         elif is_openvino_model:
-            models_logits = nn_models([wave.numpy()])[nn_models.output(0)]
+            if isinstance(nn_models, list):
+                models_logits = []
+                for nn_model in nn_models:
+                    models_logits.append(nn_model([wave.numpy()])[nn_model.output(0)])
+                models_logits = torch.stack(models_logits)
+                models_logits = self._avarage_preds(models_logits)
+            else:
+                models_logits = nn_models([wave.numpy()])[nn_models.output(0)]
             if self.use_compiled_fp16:
                 models_logits = models_logits.astype(np.float16)
         elif is_google_model:
             if self.device == "cuda":
-                with tf.device('/gpu:0'):
+                with tf.device("/gpu:0"):
                     google_model_output = nn_models.infer_tf(wave.numpy())
                     models_logits = google_postprocess(google_model_output)
             else:
@@ -249,8 +261,10 @@ class BirdsInference:
 
     @torch.no_grad()
     def predict_test_loader(
-        self, nn_models, data_loader, 
-        is_onnx_model=False, 
+        self,
+        nn_models,
+        data_loader,
+        is_onnx_model=False,
         is_openvino_model=False,
         is_google_model=False,
         google_postprocess=None,

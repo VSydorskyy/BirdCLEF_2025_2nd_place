@@ -1,11 +1,12 @@
 import os
+import subprocess
 from os.path import join as pjoin
+from shutil import copyfile
 
 import onnx
 import torch
-import subprocess
-from onnxsim import simplify
 from onnxconverter_common import float16
+from onnxsim import simplify
 
 
 class ONNXEnsemble(torch.nn.Module):
@@ -19,20 +20,17 @@ class ONNXEnsemble(torch.nn.Module):
         final_activation=None,
     ):
         if weights is not None and avarage_type != "mean":
-            raise ValueError(
-                "avarage_type must be mean if weights is not None"
-            )
+            raise ValueError("avarage_type must be mean if weights is not None")
         if final_activation is not None and final_activation not in [
             "sigmoid",
             "softmax",
         ]:
             raise ValueError(f"final_activation {final_activation} not implemented")
         super().__init__()
-        self.models = torch.nn.ModuleList(
-            [model_class(**config, device=device) for config in configs]
-        )
+        self.models = torch.nn.ModuleList([model_class(**config, device=device) for config in configs])
         self.avarage_type = avarage_type
         if weights is not None:
+            assert len(weights) == len(self.models)
             self.register_buffer("weights", torch.FloatTensor(weights))
         else:
             self.weights = None
@@ -46,10 +44,7 @@ class ONNXEnsemble(torch.nn.Module):
             )
         else:
             pred = torch.stack(
-                [
-                    one_model(sample) * weight
-                    for one_model, weight in zip(self.models, self.weights)
-                ],
+                [one_model(sample) * weight for one_model, weight in zip(self.models, self.weights)],
                 dim=0,
             )
         if self.weights is not None:
@@ -69,11 +64,13 @@ class ONNXEnsemble(torch.nn.Module):
 
 
 def convert_to_onnx(
-    model_to_convert, sample_input, base_path, 
-    save_not_simplified=False, 
+    model_to_convert,
+    sample_input,
+    base_path,
+    save_not_simplified=False,
     use_fp16=False,
     use_openvino=False,
-    opset_version=12
+    opset_version=12,
 ):
     os.makedirs(base_path)
     torch.onnx.export(
@@ -94,11 +91,19 @@ def convert_to_onnx(
     )
     # run checks
     onnx_model = onnx.load(pjoin(base_path, "model.onnx"))
-    onnx.checker.check_model(onnx_model)
-    # run additional checks and simplify
-    model_simp, check = simplify(onnx_model, skip_fuse_bn=True)
-    assert check, "Simplified ONNX model could not be validated"
-    onnx.save(model_simp, pjoin(base_path, "model_simpl.onnx"))
+    try:
+        onnx.checker.check_model(onnx_model)
+        # run additional checks and simplify
+        model_simp, check = simplify(onnx_model, skip_fuse_bn=True)
+        assert check, "Simplified ONNX model could not be validated"
+        onnx.save(model_simp, pjoin(base_path, "model_simpl.onnx"))
+    except Exception as e:
+        print("ONNX model could not be validated, because of:", e)
+        onnx.checker.check_model(pjoin(base_path, "model.onnx"))
+        copyfile(
+            pjoin(base_path, "model.onnx"),
+            pjoin(base_path, "model_simpl.onnx"),
+        )
     if use_fp16 and not use_openvino:
         print("Converting ONNX to float16")
         onnx_model = onnx.load(pjoin(base_path, "model_simpl.onnx"))
@@ -112,12 +117,15 @@ def convert_to_onnx(
         openvino_postfix = "_openvino"
         if use_fp16:
             openvino_postfix += "_fp16"
-        subprocess.call([
-            'ovc',
-            pjoin(base_path, "model_simpl.onnx"),
-            '--output_model',
-            pjoin(base_path + openvino_postfix, "model_simpl"),
-            '--compress_to_fp16', 'True' if use_fp16 else 'False',
-        ])
+        subprocess.call(
+            [
+                "ovc",
+                pjoin(base_path, "model_simpl.onnx"),
+                "--output_model",
+                pjoin(base_path + openvino_postfix, "model_simpl"),
+                "--compress_to_fp16",
+                "True" if use_fp16 else "False",
+            ]
+        )
     if not save_not_simplified:
         os.remove(pjoin(base_path, "model.onnx"))

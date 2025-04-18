@@ -12,25 +12,23 @@ from code_base.train_functions.train_lightning import lightning_training
 B_S = 64
 TRAIN_PERIOD = 5.0
 N_EPOCHS = 50
-ROOT_PATH = "data/train_audio"
+ROOT_PATH = "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/xeno_canto/train_audio"
 LATE_NORMALIZE = True
 MAXIMIZE_METRIC = True
 MAIN_METRIC = "valid_roc_auc"
-PATH_TO_JSON_MAPPING = (
-    "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/bird2int_2025.json"
-)
+PATH_TO_JSON_MAPPING = "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/bird2int_pretraintrain_prev_comps_xc_alltaxonomy_nosmall10sp_and_2025.json"
 PRECOMPUTE = False
-REPLACE_PATHES = ("train_audio", "train_features")
+REPLACE_PATHES = ("pretrain_audio", "pretrain_features")
 DEBUG = False
-N_CORES = 10
+N_CORES = 12
 
 CONFIG = {
     "seed": 1243,
-    "df_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/train_and_prev_comps_extendedv1_pruneSL_XConly2025_snipet28032025_hdf5.csv",
-    "split_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/cv_split_base_and_prev_comps_XCsnipet28032025_group_allbirds_hdf5.npy",
-    "exp_name": "eca_nfnet_l0_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_SqrtBalancing_Radamlr1e3_CosBatchLR1e6_Epoch50_BackGroundSoundScapeORESC50P05_SpecAugV1_FocalBCELoss_5Folds_ScoredPrevCompsAndXCsnipet28032025_FromV2Y2025Last_PseudoV1PT05MT01P04",
+    "df_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/xeno_canto/data_all_years_and_more/dataset/train_and_prev_comps_extendedv1_pruneSL_XCallyearstaxonomy_snipet03042025_hdf5_nosmall10sp_no2025.csv",
+    "split_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/xeno_canto/data_all_years_and_more/dataset/cv_split_20_folds_train_and_prev_comps_extendedv1_pruneSL_XCallyearstaxonomy_snipet03042025_hdf5_nosmall10sp_no2025.npy",
+    "exp_name": "tf_efficientnetv2_s_in21k_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_AdamW2d5e4_CosBatchLR1e6_Epoch50_BackGroundSoundScapeORESC50P05_SpecAugV1_FocalBCELoss_Full_PretrainPrevCompSp10_XCAllTaxonomy",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
-    "folds": [0, 1, 2, 3, 4],
+    "folds": [0],
     "train_function": lightning_training,
     "train_function_args": {
         "train_dataset_class": WaveDataset,
@@ -51,12 +49,11 @@ CONFIG = {
             "replace_pathes": REPLACE_PATHES,
             "filename_change_mapping": {
                 "base": "train_audio",
-                "train_audio": "train_audio",
-                "add_train_audio_from_prev_comps": "add_train_audio_from_prev_comps",
-                "add_train_audio_from_xeno_canto_28032025": "add_train_audio_from_xeno_canto_28032025",
-                "soundscape": "train_features_soundscapes",
+                "pretrain_audio_from_prev_comps": "pretrain_audio_from_prev_comps",
+                "add_pretrain_audio_from_xeno_canto_03042025": "add_pretrain_audio_from_xeno_canto_03042025",
             },
             "ignore_setting_dataset_value": True,
+            "check_all_files_exist": False,
             "late_aug": OneOf(
                 [
                     BackgroundNoise(
@@ -96,8 +93,6 @@ CONFIG = {
                     ),
                 ]
             ),
-            "soundscape_pseudo_df_path": "data/pseudo/double_eca_nfnet_l0_from_GoodPretrains/v0_0.csv",
-            "soundscape_pseudo_config": {"primary_label_min_prob": 0.5, "trim_min_prob": 0.1, "sampling_prob": 0.4},
         },
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {
@@ -113,11 +108,11 @@ CONFIG = {
             "replace_pathes": REPLACE_PATHES,
             "filename_change_mapping": {
                 "base": "train_audio",
-                "train_audio": "train_audio",
-                "add_train_audio_from_prev_comps": "add_train_audio_from_prev_comps",
-                "add_train_audio_from_xeno_canto_28032025": "add_train_audio_from_xeno_canto_28032025",
+                "pretrain_audio_from_prev_comps": "pretrain_audio_from_prev_comps",
+                "add_pretrain_audio_from_xeno_canto_03042025": "add_pretrain_audio_from_xeno_canto_03042025",
             },
             "ignore_setting_dataset_value": True,
+            "check_all_files_exist": False,
         },
         "train_dataloader_config": {
             "batch_size": B_S,
@@ -135,7 +130,7 @@ CONFIG = {
         },
         "nn_model_class": WaveCNNAttenClasifier,
         "nn_model_config": dict(
-            backbone="eca_nfnet_l0",
+            backbone="tf_efficientnetv2_s_in21k",
             mel_spec_paramms={
                 "sample_rate": 32000,
                 "n_mels": 128,
@@ -160,14 +155,15 @@ CONFIG = {
             },
             head_config={
                 "p": 0.5,
-                "num_class": 206,
+                "hidden_chans": 1024,
+                "num_class": 7544,
                 "train_period": TRAIN_PERIOD,
                 "infer_period": TRAIN_PERIOD,
             },
             exportable=True,
             fixed_amplitude_to_db=True,
         ),
-        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-3),
+        "optimizer_init": lambda model: torch.optim.AdamW(model.parameters(), lr=2.5e-4, eps=1e-8, betas=(0.9, 0.999)),
         "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
             optimizer, T_0=N_EPOCHS * len_train, T_mult=1, eta_min=1e-6, last_epoch=-1
         ),
@@ -185,7 +181,7 @@ CONFIG = {
                 aggr_key="dfidx",
                 use_sigmoid=False,
                 label_str2int_mapping_path=PATH_TO_JSON_MAPPING,
-                scored_bird_path="/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/sb_2025.json",
+                scored_bird_path="/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/sb_pretraintrain_prev_comps_xc_alltaxonomy_speciesfrom100.json",
             )
         ],
         "n_epochs": N_EPOCHS,
@@ -206,11 +202,5 @@ CONFIG = {
         "n_checkpoints_to_save": 3,
         "log_every_n_steps": None,
         "debug": DEBUG,
-        "label_str2int_path": PATH_TO_JSON_MAPPING,
-        "class_weights_path": "sqrt",
-        "use_sampler": True,
-        "pretrain_config": {
-            "backbone_path": "logdirs/eca_nfnet_l0_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_Radamlr1e4_CosBatchLR1e6_Epoch50_SpecAugV1_FocalBCELoss_Full_PretrainPrevCompSp10_XCAllTaxonomy/fold_0/checkpoints/backbone_last.ckpt"
-        },
     },
 }

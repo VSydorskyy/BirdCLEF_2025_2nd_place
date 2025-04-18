@@ -18,9 +18,15 @@ from ..augmentations.transforms import BackgroundNoise
 from ..utils import load_json, load_pp_audio, parallel_librosa_load
 from ..utils.main_utils import sample_uniformly_np_index
 
+tqdm.pandas()
+
 DEFAULT_TARGET = 0
 EPS = 1e-5
 MAX_RATING = 5.0
+
+
+def get_curate_id(filename):
+    return "/".join(os.path.splitext(filename)[0].split("/")[-2:])
 
 
 class WaveDataset(torch.utils.data.Dataset):
@@ -61,6 +67,7 @@ class WaveDataset(torch.utils.data.Dataset):
         use_h5py=False,
         empty_soundscape_config=None,
         soundscape_pseudo_df_path=None,
+        soundscape_pseudo_config=None,
         start_from_zero=False,
         ignore_setting_dataset_value=False,
         dataset_repeat=1,
@@ -68,6 +75,8 @@ class WaveDataset(torch.utils.data.Dataset):
         unlabeled_params={"mode": "return", "prob": 0.5, "alpha": None},
         right_bound_main=None,
         right_bound_unlabeled=None,
+        check_all_files_exist=True,
+        curation_json_path=None,
     ):
         super().__init__()
         assert unlabeled_params["mode"] in ["return", "mixup"]
@@ -114,8 +123,14 @@ class WaveDataset(torch.utils.data.Dataset):
             soundscape_pseudo_df = pd.read_csv(soundscape_pseudo_df_path)
             if "data_root_id" not in soundscape_pseudo_df.columns:
                 soundscape_pseudo_df["data_root_id"] = "soundscape"
+            # Dirty but let it be
             soundscape_pseudo_df["final_second"] = soundscape_pseudo_df["row_id"].apply(lambda x: int(x.split("_")[-1]))
+            soundscape_pseudo_df[sec_target_col] = "[]"
+            soundscape_pseudo_df[name_col] = soundscape_pseudo_df["row_id"].apply(
+                lambda x: "_".join(x.split("_")[:-1]) + ".ogg"
+            )
             df = pd.concat([df, soundscape_pseudo_df], axis=0).reset_index(drop=True)
+            self.soundscape_pseudo_config = soundscape_pseudo_config
         if df_filter_rule is not None:
             df = df_filter_rule(df)
         if debug:
@@ -168,18 +183,20 @@ class WaveDataset(torch.utils.data.Dataset):
             self.df[self.name_col] = self.df[self.name_col].apply(lambda x: splitext(x)[0] + ".hdf5")
 
         # Validate that all files exist
-        filenames_exists = self.df[self.name_col].apply(lambda x: os.path.exists(x))
-        if not filenames_exists.all() and not self.use_h5py:
-            print("Some files do not exist. Trying to twick extensions")
-            # Try to twick extensions
-            self.df.loc[~filenames_exists, self.name_col] = self.df.loc[~filenames_exists, self.name_col].apply(
-                lambda x: splitext(x)[0] + ".mp3"
-            )
-            filenames_exists = self.df[self.name_col].apply(lambda x: os.path.exists(x))
-        if not filenames_exists.all():
-            raise FileNotFoundError(
-                "Some files do not exist. Failed List:\n", self.df[~filenames_exists][self.name_col].to_list()
-            )
+        if check_all_files_exist:
+            print("Validating that all files exist")
+            filenames_exists = self.df[self.name_col].progress_apply(lambda x: os.path.exists(x))
+            if not filenames_exists.all() and not self.use_h5py:
+                print("Some files do not exist. Trying to twick extensions")
+                # Try to twick extensions
+                self.df.loc[~filenames_exists, self.name_col] = self.df.loc[~filenames_exists, self.name_col].apply(
+                    lambda x: splitext(x)[0] + ".mp3"
+                )
+                filenames_exists = self.df[self.name_col].apply(lambda x: os.path.exists(x))
+            if not filenames_exists.all():
+                raise FileNotFoundError(
+                    "Some files do not exist. Failed List:\n", self.df[~filenames_exists][self.name_col].to_list()
+                )
 
         self.sample_rate = sample_rate
         self.do_noisereduce = do_noisereduce
@@ -244,6 +261,23 @@ class WaveDataset(torch.utils.data.Dataset):
                     )
                 }
 
+        if soundscape_pseudo_df_path is not None:
+            self.soundscape_df = self.df[self.df["data_root_id"] == "soundscape"].reset_index(drop=True)
+            self.df = self.df[self.df["data_root_id"] != "soundscape"].reset_index(drop=True)
+
+            assert len(self.soundscape_df.columns) >= len(self.label_str2int)
+            label_int2str = {v: k for k, v in self.label_str2int.items()}
+            self.indices_for_soundscapes = [label_int2str[i] for i in range(len(self.label_str2int))]
+            self.soundscape_df = self.soundscape_df[
+                self.soundscape_df["primary_label_prob"] > self.soundscape_pseudo_config["primary_label_min_prob"]
+            ].reset_index(drop=True)
+            pseudo_probs = self.soundscape_df[list(self.label_str2int.keys())].values
+            pseudo_probs[pseudo_probs < self.soundscape_pseudo_config["trim_min_prob"]] = 0
+            self.soundscape_df[list(self.label_str2int.keys())] = pseudo_probs
+            self.pseudo_birds = set(self.soundscape_df[self.target_col])
+        else:
+            self.soundscape_df = None
+
         if use_sampler:
             self.targets = (
                 self.df[sampler_col].tolist() if sampler_col is not None else self.df[self.target_col].tolist()
@@ -255,6 +289,14 @@ class WaveDataset(torch.utils.data.Dataset):
         if self.empty_soundscape_config is not None:
             self.empty_sampler = BackgroundNoise(**self.empty_soundscape_config["sampler_config"])
 
+        if curation_json_path is not None:
+            self.curation_json = load_json(curation_json_path)
+            assert set(self.df[self.name_col].apply(get_curate_id)) <= set(
+                self.curation_json.keys()
+            ), "Some files are not in curation json"
+        else:
+            self.curation_json = None
+
     def turn_off_all_augs(self):
         print("All augs Turned Off")
         self.do_mixup = False
@@ -264,7 +306,9 @@ class WaveDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.df) * self.dataset_repeat
 
-    def _prepare_sample_piece(self, input, end_second=None, sample_slices=None, max_sampling_second=None):
+    def _prepare_sample_piece(
+        self, input, end_second=None, sample_slices=None, max_sampling_second=None, trim_indices=None
+    ):
         if sample_slices is not None:
             if input.shape[0] < self.segment_len:
                 pad_len = self.segment_len - input.shape[0]
@@ -304,24 +348,35 @@ class WaveDataset(torch.utils.data.Dataset):
             input = (
                 np.array(input[end - self.segment_len : end]) if self.use_h5py else input[end - self.segment_len : end]
             )
-        if input.shape[0] < self.segment_len:
-            pad_len = self.segment_len - input.shape[0]
-            return np.pad(np.array(input) if self.use_h5py else input, ((pad_len, 0)))
-        elif input.shape[0] > self.segment_len:
+        input_len = input.shape[0]
+        if trim_indices is not None:
+            input_len = trim_indices[1] - trim_indices[0]
+        if input_len < self.segment_len:
+            input = input[trim_indices[0] : trim_indices[1]] if trim_indices is not None else np.array(input)
+            pad_len = self.segment_len - input_len
+            return np.pad(input if self.use_h5py else input, ((pad_len, 0)))
+        elif input_len > self.segment_len:
             if self.start_from_zero:
                 start = 0
             else:
+                left_bound = 0
                 if max_sampling_second is not None:
                     right_bound = min(input.shape[0], int(max_sampling_second * self.sample_rate)) - self.segment_len
                 else:
-                    right_bound = input.shape[0] - self.segment_len
-                start = np.random.randint(0, right_bound)
+                    if trim_indices is not None:
+                        right_bound = trim_indices[1] - self.segment_len
+                        left_bound = trim_indices[0]
+                    else:
+                        right_bound = input.shape[0] - self.segment_len
+                start = np.random.randint(left_bound, right_bound)
             return (
                 np.array(input[start : start + self.segment_len])
                 if self.use_h5py
                 else input[start : start + self.segment_len]
             )
         else:
+            if trim_indices is not None:
+                input = input[trim_indices[0] : trim_indices[1]]
             return np.array(input) if self.use_h5py else input
 
     def _prepare_target(self, main_tgt, sec_tgt, all_labels=None):
@@ -341,23 +396,33 @@ class WaveDataset(torch.utils.data.Dataset):
         return all_tgt
 
     def _prepare_sample_target_from_idx(self, idx: int):
+        is_pseudo_sample = False
+        if self.soundscape_df is not None and np.random.binomial(1, self.soundscape_pseudo_config["sampling_prob"]):
+            initial_class = self.df[self.target_col].iloc[idx]
+            if initial_class in self.pseudo_birds:
+                idx = np.random.choice(np.where(self.soundscape_df[self.target_col] == initial_class)[0])
+                is_pseudo_sample = True
         if self.empty_soundscape_config is not None and np.random.binomial(1, self.empty_soundscape_config["prob"]):
             wave = self.empty_sampler.sample(sample_length=self.segment_len)
             target = torch.zeros(len(self.label_str2int)).float()
         else:
+            if is_pseudo_sample:
+                row = self.soundscape_df.iloc[idx]
+            else:
+                row = self.df.iloc[idx]
             if self.use_h5py:
-                with h5py.File(self.df[self.name_col].iloc[idx], "r", swmr=True) as f:
+                with h5py.File(row[self.name_col], "r", swmr=True) as f:
                     # Very messy but let it be
                     if (
-                        self.df["data_root_id"].iloc[idx] is not None
-                        and self.df["data_root_id"].iloc[idx].startswith("soundscape")
+                        row["data_root_id"] is not None
+                        and row["data_root_id"].startswith("soundscape")
                         and self.timewise_col is None
                     ):
-                        end_second = self.df["final_second"].iloc[idx]
+                        end_second = row["final_second"]
                     else:
                         end_second = None
                     if self.timewise_col is not None:
-                        sample_slices = self.df[self.timewise_col].iloc[idx]
+                        sample_slices = row[self.timewise_col]
                         # print("Input sample slices", sample_slices)
                         wave, chunk_idx = self._prepare_sample_piece(
                             f["au"],
@@ -367,10 +432,16 @@ class WaveDataset(torch.utils.data.Dataset):
                         )
                     else:
                         sample_slices = None
+                        trim_indices = None
+                        if self.curation_json is not None:
+                            trim_indices = self.curation_json[get_curate_id(row[self.name_col])]
+                            if trim_indices[0] == -1:
+                                trim_indices = None
                         wave = self._prepare_sample_piece(
                             f["au"],
                             end_second=end_second,
                             max_sampling_second=self.right_bound_main,
+                            trim_indices=trim_indices,
                         )
             else:
                 if self.precompute:
@@ -378,7 +449,7 @@ class WaveDataset(torch.utils.data.Dataset):
                 else:
                     # Extract only audio, without sample_rate
                     wave = load_pp_audio(
-                        self.df[self.name_col].iloc[idx],
+                        row[self.name_col],
                         sr=self.sample_rate,
                         do_noisereduce=self.do_noisereduce,
                         normalize=(not self.late_normalize) and self.load_normalize,
@@ -391,20 +462,20 @@ class WaveDataset(torch.utils.data.Dataset):
 
                 wave = self._prepare_sample_piece(wave, max_sampling_second=self.right_bound_main)
 
-            main_tgt = self.df[self.target_col].iloc[idx]
+            main_tgt = row[self.target_col]
             if self.sec_target_col is not None:
-                sec_tgt = self.df[self.sec_target_col].iloc[idx]
+                sec_tgt = row[self.sec_target_col]
             else:
                 sec_tgt = [""]
             if self.timewise_col is not None:
                 # print("Chunk", self.df[self.timewise_col].iloc[idx][chunk_idx])
-                target = self._prepare_target(
-                    main_tgt, sec_tgt, all_labels=self.df[self.timewise_col].iloc[idx][chunk_idx][-1]
-                )
+                target = self._prepare_target(main_tgt, sec_tgt, all_labels=row[self.timewise_col][chunk_idx][-1])
+            elif is_pseudo_sample:
+                target = torch.from_numpy(row[self.indices_for_soundscapes].values.astype(np.float32)).float()
             else:
                 target = self._prepare_target(main_tgt, sec_tgt)
             if self.rating_col is not None:
-                rating = self.df[self.rating_col].iloc[idx] / MAX_RATING
+                rating = row[self.rating_col] / MAX_RATING
                 assert 0.0 <= rating <= 1.0
                 target = (target * rating).float()
 
@@ -603,6 +674,7 @@ class WaveAllFileDataset(WaveDataset):
         # we will just validate it, without doing resampling
         validate_sr=None,
         ignore_setting_dataset_value=False,
+        check_all_files_exist=True,
         **kwargs,
     ):
         if kwargs:
@@ -640,6 +712,7 @@ class WaveAllFileDataset(WaveDataset):
             use_h5py=use_h5py,
             replace_pathes=replace_pathes,
             ignore_setting_dataset_value=ignore_setting_dataset_value,
+            check_all_files_exist=check_all_files_exist,
         )
         self.validate_sr = validate_sr
         self.load_normalize = load_normalize

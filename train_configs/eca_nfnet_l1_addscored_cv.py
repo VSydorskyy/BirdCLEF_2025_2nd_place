@@ -28,7 +28,7 @@ CONFIG = {
     "seed": 1243,
     "df_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/train_and_prev_comps_extendedv1_pruneSL_XConly2025_snipet28032025_hdf5.csv",
     "split_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/cv_split_base_and_prev_comps_XCsnipet28032025_group_allbirds_hdf5.npy",
-    "exp_name": "eca_nfnet_l0_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_SqrtBalancing_Radamlr1e3_CosBatchLR1e6_Epoch50_BackGroundSoundScapeORESC50P05_SpecAugV1_FocalBCELoss_5Folds_ScoredPrevCompsAndXCsnipet28032025_FromV2Y2025Last_PseudoV1PT05MT01P04",
+    "exp_name": "eca_nfnet_l1_Exp_DPR02_64bs_5sec_mixupP05_RandomFiltering_SqrtBalancing_Radamlr1e3_CosBatchLR1e6_Epoch50_BackGroundSoundScapeORESC50P05_SpecAugV1_FocalBCELoss_5Folds_ScoredPrevCompsAndXCsnipet28032025_FromV2Y2025Last_PseudoV2PT05MT01P05",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
     "folds": [0, 1, 2, 3, 4],
     "train_function": lightning_training,
@@ -96,8 +96,8 @@ CONFIG = {
                     ),
                 ]
             ),
-            "soundscape_pseudo_df_path": "data/pseudo/double_eca_nfnet_l0_from_GoodPretrains/v0_0.csv",
-            "soundscape_pseudo_config": {"primary_label_min_prob": 0.5, "trim_min_prob": 0.1, "sampling_prob": 0.4},
+            "soundscape_pseudo_df_path": "data/pseudo/four_ecas_from_GoodPretrains_879_869_867_866/v0_0.csv",
+            "soundscape_pseudo_config": {"primary_label_min_prob": 0.5, "trim_min_prob": 0.1, "sampling_prob": 0.5},
         },
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {
@@ -135,7 +135,8 @@ CONFIG = {
         },
         "nn_model_class": WaveCNNAttenClasifier,
         "nn_model_config": dict(
-            backbone="eca_nfnet_l0",
+            backbone="eca_nfnet_l1",
+            add_backbone_config={"drop_path_rate": 0.2},
             mel_spec_paramms={
                 "sample_rate": 32000,
                 "n_mels": 128,
@@ -165,7 +166,6 @@ CONFIG = {
                 "infer_period": TRAIN_PERIOD,
             },
             exportable=True,
-            fixed_amplitude_to_db=True,
         ),
         "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-3),
         "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
@@ -210,7 +210,7 @@ CONFIG = {
         "class_weights_path": "sqrt",
         "use_sampler": True,
         "pretrain_config": {
-            "backbone_path": "logdirs/eca_nfnet_l0_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_Radamlr1e4_CosBatchLR1e6_Epoch50_SpecAugV1_FocalBCELoss_Full_PretrainPrevCompSp10_XCAllTaxonomy/fold_0/checkpoints/backbone_last.ckpt"
+            "backbone_path": "logdirs/eca_nfnet_l1_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_Radamlr1e4_CosBatchLR1e6_Epoch50_BackGroundSoundScapeORESC50P05_SpecAugV1_FocalBCELoss_Full_PretrainPrevCompSp10_XCAllTaxonomy/fold_0/checkpoints/backbone_best.ckpt"
         },
     },
 }

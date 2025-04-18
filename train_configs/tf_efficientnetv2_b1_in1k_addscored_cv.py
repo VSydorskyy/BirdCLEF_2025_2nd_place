@@ -1,7 +1,7 @@
 from glob import glob
+
 import torch
 
-from code_base.augmentations.transforms import BackgroundNoise
 from code_base.callbacks import ROC_AUC_Score
 from code_base.datasets import WaveAllFileDataset, WaveDataset
 from code_base.forwards import MultilabelClsForwardLongShort
@@ -11,21 +11,25 @@ from code_base.train_functions.train_lightning import lightning_training
 B_S = 64
 TRAIN_PERIOD = 5.0
 N_EPOCHS = 50
-ROOT_PATH = "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_features/"
+ROOT_PATH = "data/train_audio"
 LATE_NORMALIZE = True
 MAXIMIZE_METRIC = True
 MAIN_METRIC = "valid_roc_auc"
-PATH_TO_JSON_MAPPING = "/home/vova/data/exps/birdclef_2024/class_mappings/bird2int_2024.json"
+PATH_TO_JSON_MAPPING = (
+    "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/bird2int_2025.json"
+)
 PRECOMPUTE = False
+REPLACE_PATHES = ("train_audio", "train_features")
 DEBUG = False
+N_CORES = 12
 
 CONFIG = {
     "seed": 1243,
-    "df_path": "/home/vova/data/exps/birdclef_2024/birdclef_2024/train_metadata_extended.csv",
-    "split_path": "/home/vova/data/exps/birdclef_2024/cv_splits/birdclef_2024_5_folds_split.npy",
-    "exp_name": "convnextv2_tiny_fcmae_ft_in22k_in1k_384_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_balancedSampler_Radamlr1e4_CosBatchLR1e6_Epoch50_SpecAugV1_FocalLoss_Full",
+    "df_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/train_and_prev_comps_extendedv1_pruneSL_XConly2025_snipet28032025_hdf5.csv",
+    "split_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/cv_split_base_and_prev_comps_XCsnipet28032025_group_allbirds_hdf5.npy",
+    "exp_name": "tf_efficientnetv2_b1_in1k_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_SqrtBalancing_Radamlr1e3_CosBatchLR1e6_Epoch50_SpecAugV1_FocalBCELoss_5Folds_ScoredPrevCompsAndXCsnipet28032025",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
-    "folds": None,
+    "folds": [4],
     "train_function": lightning_training,
     "train_function_args": {
         "train_dataset_class": WaveDataset,
@@ -33,7 +37,7 @@ CONFIG = {
             "root": ROOT_PATH,
             "label_str2int_mapping_path": PATH_TO_JSON_MAPPING,
             "precompute": PRECOMPUTE,
-            "n_cores": 32,
+            "n_cores": N_CORES,
             "debug": DEBUG,
             "do_mixup": True,
             "mixup_params": {"prob": 0.5, "alpha": None},
@@ -43,37 +47,52 @@ CONFIG = {
             "use_sampler": True,
             "shuffle": True,
             "use_h5py": True,
+            "replace_pathes": REPLACE_PATHES,
+            "filename_change_mapping": {
+                "base": "train_audio",
+                "train_audio": "train_audio",
+                "add_train_audio_from_prev_comps": "add_train_audio_from_prev_comps",
+                "add_train_audio_from_xeno_canto_28032025": "add_train_audio_from_xeno_canto_28032025",
+            },
+            "ignore_setting_dataset_value": True,
         },
-        
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {
             "root": ROOT_PATH,
             "label_str2int_mapping_path": PATH_TO_JSON_MAPPING,
             "precompute": False,
-            "n_cores": 32,
+            "n_cores": N_CORES,
             "debug": DEBUG,
             "segment_len": 5,
             "sample_id": None,
             "late_normalize": LATE_NORMALIZE,
             "use_h5py": True,
+            "replace_pathes": REPLACE_PATHES,
+            "filename_change_mapping": {
+                "base": "train_audio",
+                "train_audio": "train_audio",
+                "add_train_audio_from_prev_comps": "add_train_audio_from_prev_comps",
+                "add_train_audio_from_xeno_canto_28032025": "add_train_audio_from_xeno_canto_28032025",
+            },
+            "ignore_setting_dataset_value": True,
         },
         "train_dataloader_config": {
             "batch_size": B_S,
             "shuffle": False,
             "drop_last": True,
-            "num_workers": 8,
+            "num_workers": N_CORES,
             "pin_memory": True,
         },
         "val_dataloader_config": {
             "batch_size": B_S,
             "shuffle": False,
             "drop_last": False,
-            "num_workers": 8,
+            "num_workers": N_CORES,
             "pin_memory": True,
         },
         "nn_model_class": WaveCNNAttenClasifier,
         "nn_model_config": dict(
-            backbone="convnextv2_tiny.fcmae_ft_in22k_in1k_384",
+            backbone="tf_efficientnetv2_b1.in1k",
             mel_spec_paramms={
                 "sample_rate": 32000,
                 "n_mels": 128,
@@ -98,24 +117,23 @@ CONFIG = {
             },
             head_config={
                 "p": 0.5,
-                "num_class": 188,
+                "num_class": 206,
                 "train_period": TRAIN_PERIOD,
                 "infer_period": TRAIN_PERIOD,
             },
             exportable=True,
+            fixed_amplitude_to_db=True,
         ),
-        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-4),
+        "optimizer_init": lambda model: torch.optim.RAdam(model.parameters(), lr=1e-3),
         "scheduler_init": lambda optimizer, len_train: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=N_EPOCHS*len_train, T_mult=1, eta_min=1e-6, last_epoch=-1
+            optimizer, T_0=N_EPOCHS * len_train, T_mult=1, eta_min=1e-6, last_epoch=-1
         ),
         "scheduler_params": {"interval": "step", "monitor": MAIN_METRIC},
         "forward": lambda: MultilabelClsForwardLongShort(
             loss_type="baseline",
             use_weights=False,
-            batch_aug=RandomFiltering(
-                min_db=-20, is_wave=True, normalize_wave=LATE_NORMALIZE
-            ),
-            use_focal_loss=True,
+            batch_aug=RandomFiltering(min_db=-20, is_wave=True, normalize_wave=LATE_NORMALIZE),
+            use_bce_focal_loss=True,
         ),
         "callbacks": lambda: [
             ROC_AUC_Score(
@@ -124,7 +142,7 @@ CONFIG = {
                 aggr_key="dfidx",
                 use_sigmoid=False,
                 label_str2int_mapping_path=PATH_TO_JSON_MAPPING,
-                scored_bird_path="/home/vova/data/exps/birdclef_2024/scored_birds/sb_2024.json",
+                scored_bird_path="/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/sb_2025.json",
             )
         ],
         "n_epochs": N_EPOCHS,
@@ -137,16 +155,16 @@ CONFIG = {
             save_on_train_epoch_end=True,
             filename="{epoch}-{step}-{valid_roc_auc:.3f}",
         ),
+        "wandb_logger_params": {"project": "birdclef_2025", "id": None, "log_model": False},
         # Possible options
         # "16-mixed", "bf16-mixed", "32-true", "64-true"
-        "precision_mode": "16-mixed",
+        "precision_mode": "32-true",
         "train_strategy": "ddp_find_unused_parameters_true",
         "n_checkpoints_to_save": 3,
         "log_every_n_steps": None,
         "debug": DEBUG,
-
         "label_str2int_path": PATH_TO_JSON_MAPPING,
-        "class_weights_path": "/home/vova/data/exps/birdclef_2024/sample_weights/sw_2024_v1.json",
+        "class_weights_path": "sqrt",
         "use_sampler": True,
     },
 }

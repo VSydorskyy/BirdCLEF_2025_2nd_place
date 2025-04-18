@@ -301,6 +301,7 @@ def lightning_training(
         if "backbone_path" in current_pretrain_config:
             backbone_state_dict = torch.load(current_pretrain_config["backbone_path"], map_location="cpu")
             model.backbone.load_state_dict(backbone_state_dict)
+            print(f"Loaded backbone from checkpoint {pretrain_config['backbone_path']}")
         else:
             pretrain_checkpoint = create_chkp(**current_pretrain_config)
             print("Missing keys: ", set(model.state_dict().keys()) - set(pretrain_checkpoint))
