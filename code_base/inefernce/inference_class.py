@@ -227,7 +227,7 @@ class BirdsInference:
                 models_logits = []
                 for nn_model in nn_models:
                     models_logits.append(nn_model([wave.numpy()])[nn_model.output(0)])
-                models_logits = torch.stack(models_logits)
+                models_logits = np.stack(models_logits, axis=0)
                 models_logits = self._avarage_preds(models_logits)
             else:
                 models_logits = nn_models([wave.numpy()])[nn_models.output(0)]

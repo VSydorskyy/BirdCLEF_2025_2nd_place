@@ -28,7 +28,7 @@ CONFIG = {
     "seed": 1243,
     "df_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/train_and_prev_comps_extendedv1_pruneSL_XConly2025_snipet28032025_hdf5.csv",
     "split_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/cv_split_base_and_prev_comps_XCsnipet28032025_group_allbirds_hdf5.npy",
-    "exp_name": "eca_nfnet_l0_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_SqrtBalancing_Radamlr1e3_CosBatchLR1e6_Epoch50_BackGroundSoundScapeORESC50P05_SpecAugV1_FocalBCELoss_5Folds_ScoredPrevCompsAndXCsnipet28032025_FromV2Y2025Last_PseudoV1PT05MT01P04",
+    "exp_name": "eca_nfnet_l0_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_SqrtBalancing_Radamlr1e3_CosBatchLR1e6_Epoch50_BackGroundSoundScapeORESC50P05_SpecAugV1_FocalBCELoss_LSF1005_5Folds_ScoredPrevCompsAndXCsnipet28032025_FromV2Y2025Last_PseudoF1PT05MT01P04",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
     "folds": [0, 1, 2, 3, 4],
     "train_function": lightning_training,
@@ -96,8 +96,9 @@ CONFIG = {
                     ),
                 ]
             ),
-            "soundscape_pseudo_df_path": "data/pseudo/double_eca_nfnet_l0_from_GoodPretrains/v0_0.csv",
+            "soundscape_pseudo_df_path": "data/pseudo/eca_124__eca_117__eca_112__eca_118__eca_113__ebs_123__eca_120__eca_121/v0_0.csv",
             "soundscape_pseudo_config": {"primary_label_min_prob": 0.5, "trim_min_prob": 0.1, "sampling_prob": 0.4},
+            "label_smoothing": 0.05,
         },
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {

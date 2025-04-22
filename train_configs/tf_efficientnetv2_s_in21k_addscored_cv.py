@@ -20,17 +20,18 @@ PATH_TO_JSON_MAPPING = (
     "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/bird2int_2025.json"
 )
 PRECOMPUTE = False
-REPLACE_PATHES = ("train_audio", "train_features")
+REPLACE_PATHES = ("train_audio", "train_features22050")
 DEBUG = False
-N_CORES = 12
+N_CORES = 10
+SR = 22050
 
 CONFIG = {
     "seed": 1243,
     "df_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/train_and_prev_comps_extendedv1_pruneSL_XConly2025_snipet28032025_hdf5.csv",
     "split_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/cv_split_base_and_prev_comps_XCsnipet28032025_group_allbirds_hdf5.npy",
-    "exp_name": "tf_efficientnetv2_s_in21k_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_SqrtBalancing_Radamlr1e3_CosBatchLR1e6_Epoch50_BackGroundSoundScapeORESC50P05_SpecAugV1_FocalBCELoss_5Folds_ScoredPrevCompsAndXCsnipet28032025",
+    "exp_name": "tf_efficientnetv2_s_in21k_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_SqrtBalancing_Radamlr1e3_CosBatchLR1e6_Epoch50_BackGroundSoundScapeORESC50P05_SR22050_SpecAugV1_FocalBCELoss_5Folds_ScoredPrevCompsAndXCsnipet28032025_GenFilLim",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
-    "folds": [0, 1, 2, 3, 4],
+    "folds": [0],
     "train_function": lightning_training,
     "train_function_args": {
         "train_dataset_class": WaveDataset,
@@ -54,6 +55,7 @@ CONFIG = {
                 "train_audio": "train_audio",
                 "add_train_audio_from_prev_comps": "add_train_audio_from_prev_comps",
                 "add_train_audio_from_xeno_canto_28032025": "add_train_audio_from_xeno_canto_28032025",
+                "add_train_audio_andrii_generated_undersample": "add_train_audio_andrii_generated_undersample",
             },
             "ignore_setting_dataset_value": True,
             "late_aug": OneOf(
@@ -64,6 +66,7 @@ CONFIG = {
                         esc50_df_path="data/v1_no_call_meta.csv",
                         normalize=LATE_NORMALIZE,
                         precompute=False,
+                        sr=SR,
                     ),
                     BackgroundNoise(
                         p=0.5,
@@ -92,9 +95,14 @@ CONFIG = {
                             "crickets",
                         ],
                         normalize=LATE_NORMALIZE,
+                        sr=SR,
                     ),
                 ]
             ),
+            "sample_rate": SR,
+            "add_df_paths": [
+                "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/kaggle_datasets/andrii_generated_data/andrii_meta_filtered_limited.csv"
+            ],
         },
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {
@@ -115,6 +123,7 @@ CONFIG = {
                 "add_train_audio_from_xeno_canto_28032025": "add_train_audio_from_xeno_canto_28032025",
             },
             "ignore_setting_dataset_value": True,
+            "sample_rate": SR,
         },
         "train_dataloader_config": {
             "batch_size": B_S,
@@ -134,7 +143,7 @@ CONFIG = {
         "nn_model_config": dict(
             backbone="tf_efficientnetv2_s_in21k",
             mel_spec_paramms={
-                "sample_rate": 32000,
+                "sample_rate": SR,
                 "n_mels": 128,
                 "f_min": 20,
                 "n_fft": 2048,

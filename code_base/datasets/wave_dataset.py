@@ -77,6 +77,7 @@ class WaveDataset(torch.utils.data.Dataset):
         right_bound_unlabeled=None,
         check_all_files_exist=True,
         curation_json_path=None,
+        label_smoothing=None,
     ):
         super().__init__()
         assert unlabeled_params["mode"] in ["return", "mixup"]
@@ -222,6 +223,8 @@ class WaveDataset(torch.utils.data.Dataset):
 
         self.right_bound_main = right_bound_main
         self.right_bound_unlabeled = right_bound_unlabeled
+
+        self.label_smoothing = label_smoothing
 
         if unlabeled_glob is not None:
             self.unlabeled_files = glob(unlabeled_glob)
@@ -393,6 +396,8 @@ class WaveDataset(torch.utils.data.Dataset):
                 all_tgt = [self.label_str2int[main_tgt]] + [self.label_str2int[el] for el in sec_tgt if el != ""]
         all_tgt = torch.nn.functional.one_hot(torch.LongTensor(all_tgt), len(self.label_str2int)).float()
         all_tgt = torch.clamp(all_tgt.sum(0), 0.0, 1.0)
+        if self.label_smoothing is not None:
+            all_tgt = all_tgt * (1 - self.label_smoothing) + self.label_smoothing * all_tgt.sum() / all_tgt.shape[-1]
         return all_tgt
 
     def _prepare_sample_target_from_idx(self, idx: int):
@@ -504,6 +509,7 @@ class WaveDataset(torch.utils.data.Dataset):
         # .....
         if self.do_mixup and np.random.binomial(n=1, p=self.mixup_params["prob"]):
             n_samples = self.mixup_params.get("n_samples", 1)
+            target_aggregation = self.mixup_params.get("target_aggregation", "sum")
             assert n_samples >= 1
             if n_samples == 1:
                 mixup_idx = self._get_mixup_idx()
@@ -527,11 +533,18 @@ class WaveDataset(torch.utils.data.Dataset):
 
             if self.mixup_params["alpha"] is None:
                 if multimix:
+                    if target_aggregation != "sum":
+                        raise ValueError("target_aggregation should be `sum` for multimix")
                     wave = (sum(mixup_wave) + wave) / (n_samples + 1)
                     target = sum(mixup_target) + target
                 else:
                     wave = (mixup_wave + wave) / 2
-                    target = mixup_target + target
+                    if target_aggregation == "sum":
+                        target = mixup_target + target
+                    elif target_aggregation == "max":
+                        target = torch.max(mixup_target, target)
+                    else:
+                        raise ValueError("target_aggregation should be `sum` or `max`")
             else:
                 mix_weight = np.random.beta(self.mixup_params["alpha"], self.mixup_params["alpha"])
                 if self.mixup_params.get("weight_trim", False):
