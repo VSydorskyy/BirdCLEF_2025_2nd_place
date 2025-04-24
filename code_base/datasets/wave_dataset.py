@@ -121,16 +121,22 @@ class WaveDataset(torch.utils.data.Dataset):
             ).reset_index(drop=True)
             df = pd.concat([df, add_merged_df], axis=0).reset_index(drop=True)
         if soundscape_pseudo_df_path is not None:
-            soundscape_pseudo_df = pd.read_csv(soundscape_pseudo_df_path)
-            if "data_root_id" not in soundscape_pseudo_df.columns:
-                soundscape_pseudo_df["data_root_id"] = "soundscape"
-            # Dirty but let it be
-            soundscape_pseudo_df["final_second"] = soundscape_pseudo_df["row_id"].apply(lambda x: int(x.split("_")[-1]))
-            soundscape_pseudo_df[sec_target_col] = "[]"
-            soundscape_pseudo_df[name_col] = soundscape_pseudo_df["row_id"].apply(
-                lambda x: "_".join(x.split("_")[:-1]) + ".ogg"
-            )
-            df = pd.concat([df, soundscape_pseudo_df], axis=0).reset_index(drop=True)
+            if not isinstance(soundscape_pseudo_df_path, list):
+                soundscape_pseudo_df_path = [soundscape_pseudo_df_path]
+
+            for index, one_df_path in enumerate(soundscape_pseudo_df_path):
+                soundscape_pseudo_df = pd.read_csv(one_df_path)
+                if "data_root_id" not in soundscape_pseudo_df.columns:
+                    soundscape_pseudo_df["data_root_id"] = "soundscape_" + str(index)
+                # Dirty but let it be
+                soundscape_pseudo_df["final_second"] = soundscape_pseudo_df["row_id"].apply(
+                    lambda x: int(x.split("_")[-1])
+                )
+                soundscape_pseudo_df[sec_target_col] = "[]"
+                soundscape_pseudo_df[name_col] = soundscape_pseudo_df["row_id"].apply(
+                    lambda x: "_".join(x.split("_")[:-1]) + ".ogg"
+                )
+                df = pd.concat([df, soundscape_pseudo_df], axis=0).reset_index(drop=True)
             self.soundscape_pseudo_config = soundscape_pseudo_config
         if df_filter_rule is not None:
             df = df_filter_rule(df)
@@ -265,15 +271,40 @@ class WaveDataset(torch.utils.data.Dataset):
                 }
 
         if soundscape_pseudo_df_path is not None:
-            self.soundscape_df = self.df[self.df["data_root_id"] == "soundscape"].reset_index(drop=True)
-            self.df = self.df[self.df["data_root_id"] != "soundscape"].reset_index(drop=True)
+            soundscape_dfs = [
+                self.df[self.df["data_root_id"] == "soundscape_" + str(idx)].reset_index(drop=True)
+                for idx in range(len(soundscape_pseudo_df_path))
+            ]
+            self.df = self.df[~self.df["data_root_id"].apply(lambda x: x.startswith("soundscape"))].reset_index(
+                drop=True
+            )
 
-            assert len(self.soundscape_df.columns) >= len(self.label_str2int)
             label_int2str = {v: k for k, v in self.label_str2int.items()}
             self.indices_for_soundscapes = [label_int2str[i] for i in range(len(self.label_str2int))]
-            self.soundscape_df = self.soundscape_df[
-                self.soundscape_df["primary_label_prob"] > self.soundscape_pseudo_config["primary_label_min_prob"]
-            ].reset_index(drop=True)
+            self.soundscape_df = []
+            used_sample_ids = set()
+            n_total_sample_ids = None
+            for ss_path, ss_df in zip(soundscape_pseudo_df_path, soundscape_dfs):
+                assert len(ss_df.columns) >= len(self.label_str2int)
+                ss_df["sample_id"] = ss_df["row_id"].apply(lambda x: "_".join(x.split("_")[:-1]))
+                if n_total_sample_ids is None:
+                    n_total_sample_ids = len(ss_df["sample_id"].unique())
+                ss_df = ss_df[
+                    ss_df["primary_label_prob"] > self.soundscape_pseudo_config["primary_label_min_prob"]
+                ].reset_index(drop=True)
+                ss_df = ss_df[~ss_df["sample_id"].isin(used_sample_ids)].reset_index(drop=True)
+                print(f"Selected {len(set(ss_df['sample_id']))} samples from {n_total_sample_ids} from {ss_path}")
+                used_sample_ids.update(set(ss_df["sample_id"].tolist()))
+                self.soundscape_df.append(ss_df)
+
+            self.soundscape_df = pd.concat(self.soundscape_df, axis=0).reset_index(drop=True)
+            assert (
+                self.soundscape_df["row_id"].value_counts().max() == 1
+            ), "Some samples are duplicated in soundscape df"
+            assert (
+                self.soundscape_df["sample_id"].value_counts().max() <= 12
+            ), "Some samples are duplicated in soundscape df"
+
             pseudo_probs = self.soundscape_df[list(self.label_str2int.keys())].values
             pseudo_probs[pseudo_probs < self.soundscape_pseudo_config["trim_min_prob"]] = 0
             self.soundscape_df[list(self.label_str2int.keys())] = pseudo_probs
