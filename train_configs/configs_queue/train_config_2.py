@@ -2,6 +2,7 @@ from glob import glob
 
 import torch
 
+from code_base.augmentations.transforms import BackgroundNoise, OneOf
 from code_base.callbacks import ROC_AUC_Score
 from code_base.datasets import WaveAllFileDataset, WaveDataset
 from code_base.forwards import MultilabelClsForwardLongShort
@@ -15,9 +16,7 @@ ROOT_PATH = "data/train_audio"
 LATE_NORMALIZE = True
 MAXIMIZE_METRIC = True
 MAIN_METRIC = "valid_roc_auc"
-PATH_TO_JSON_MAPPING = (
-    "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/bird2int_2025.json"
-)
+PATH_TO_JSON_MAPPING = "data/bird2int_2025.json"
 PRECOMPUTE = False
 REPLACE_PATHES = ("train_audio", "train_features")
 DEBUG = False
@@ -25,11 +24,11 @@ N_CORES = 12
 
 CONFIG = {
     "seed": 1243,
-    "df_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/train_and_prev_comps_extendedv1_pruneSL_XConly2025_snipet28032025_hdf5.csv",
-    "split_path": "/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/cv_split_base_and_prev_comps_XCsnipet28032025_group_allbirds_hdf5.npy",
-    "exp_name": "tf_efficientnetv2_b1_in1k_Exp_noamp_64bs_5sec_mixupP05_RandomFiltering_SqrtBalancing_Radamlr1e3_CosBatchLR1e6_Epoch50_SpecAugV1_FocalBCELoss_5Folds_ScoredPrevCompsAndXCsnipet28032025",
+    "df_path": "data/train_and_prev_comps_extendedv1_pruneSL_XConly2025_snipet28032025_hdf5_fixedaudiometa_h5pyDur.csv",
+    "split_path": "data/cv_split_base_and_prev_comps_XCsnipet28032025_group_allrarebirds_hdf5_noleak.npy",
+    "exp_name": "eca_nfnet_l1_Exp_noamp_64bs_5sec_BasicAug_EqualBalancing_Radamlr1e3_CosBatchLR1e6_Epoch50_FocalBCELoss_LSF1005_FromPreca4_PseudoF2PT05MT01P04I2_AddRareBirdsNoLeak",
     "files_to_save": (glob("code_base/**/*.py") + [__file__] + ["scripts/main_train.py"]),
-    "folds": [4],
+    "folds": [0, 1, 2, 3, 4],
     "train_function": lightning_training,
     "train_function_args": {
         "train_dataset_class": WaveDataset,
@@ -53,8 +52,55 @@ CONFIG = {
                 "train_audio": "train_audio",
                 "add_train_audio_from_prev_comps": "add_train_audio_from_prev_comps",
                 "add_train_audio_from_xeno_canto_28032025": "add_train_audio_from_xeno_canto_28032025",
+                "soundscape_0": "train_features_soundscapes",
+                "soundscape_1": "train_features_soundscapes",
             },
             "ignore_setting_dataset_value": True,
+            "late_aug": OneOf(
+                [
+                    BackgroundNoise(
+                        p=0.5,
+                        esc50_root="data/soundscapes_nocall/train_audio",
+                        esc50_df_path="data/v1_no_call_meta.csv",
+                        normalize=LATE_NORMALIZE,
+                        precompute=False,
+                    ),
+                    BackgroundNoise(
+                        p=0.5,
+                        esc50_root="data/esc50/esc50/audio",
+                        esc50_df_path="data/esc50_background.csv",
+                        esc50_cats_to_include=[
+                            "dog",
+                            "rain",
+                            "insects",
+                            "hen",
+                            "engine",
+                            "hand_saw",
+                            "pig",
+                            "rooster",
+                            "sea_waves",
+                            "cat",
+                            "crackling_fire",
+                            "thunderstorm",
+                            "chainsaw",
+                            "train",
+                            "sheep",
+                            "wind",
+                            "footsteps",
+                            "frog",
+                            "cow",
+                            "crickets",
+                        ],
+                        normalize=LATE_NORMALIZE,
+                    ),
+                ]
+            ),
+            "soundscape_pseudo_df_path": [
+                "data/pseudo/eca_124__eca_117__eca_112__eca_118__eca_113__ebs_123__eca_120__eca_121/v0_0.csv",
+                "data/pseudo/double_eca_nfnet_l0_AllFPseudoI1/v0_0.csv",
+            ],
+            "soundscape_pseudo_config": {"primary_label_min_prob": 0.5, "trim_min_prob": 0.1, "sampling_prob": 0.4},
+            "label_smoothing": 0.05,
         },
         "val_dataset_class": WaveAllFileDataset,
         "val_dataset_config": {
@@ -75,6 +121,7 @@ CONFIG = {
                 "add_train_audio_from_xeno_canto_28032025": "add_train_audio_from_xeno_canto_28032025",
             },
             "ignore_setting_dataset_value": True,
+            "duration_col": "duration_s_h5py",
         },
         "train_dataloader_config": {
             "batch_size": B_S,
@@ -92,7 +139,7 @@ CONFIG = {
         },
         "nn_model_class": WaveCNNAttenClasifier,
         "nn_model_config": dict(
-            backbone="tf_efficientnetv2_b1.in1k",
+            backbone="eca_nfnet_l1",
             mel_spec_paramms={
                 "sample_rate": 32000,
                 "n_mels": 128,
@@ -142,7 +189,7 @@ CONFIG = {
                 aggr_key="dfidx",
                 use_sigmoid=False,
                 label_str2int_mapping_path=PATH_TO_JSON_MAPPING,
-                scored_bird_path="/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/birdclef_2025/sb_2025.json",
+                scored_bird_path="data/sb_2025.json",
             )
         ],
         "n_epochs": N_EPOCHS,
@@ -164,7 +211,10 @@ CONFIG = {
         "log_every_n_steps": None,
         "debug": DEBUG,
         "label_str2int_path": PATH_TO_JSON_MAPPING,
-        "class_weights_path": "sqrt",
+        "class_weights_path": "balanced",
         "use_sampler": True,
+        "pretrain_config": {
+            "backbone_path": "data/bird_clef_2025_pretrained_models/eca_nfnet_l1_pretrain_from_bigXC_best.ckpt"
+        },
     },
 }

@@ -291,10 +291,13 @@ class BackgroundNoise(AudioTransform):
         self.precompute = precompute
         self.sr = sr
         self.load_normalize = load_normalize
+        self.esc50_df_path = esc50_df_path
+        self.background_regex = background_regex
         if background_regex is None and (esc50_root is None or esc50_df_path is None):
             raise ValueError("background_regex OR esc50_root AND esc50_df_path should be defined")
         if background_regex is not None:
             sample_names = glob(background_regex, recursive=glob_recursive)
+            self.chunks = None
         else:
             sample_df = pd.read_csv(esc50_df_path)
             if esc50_cats_to_include is not None:
@@ -372,6 +375,13 @@ class BackgroundNoise(AudioTransform):
 
     def apply(self, y: np.ndarray, **params):
         back_sample, back_sample_id = self._pick_random_valid_sample()
+        if self.verbose:
+            if self.background_regex is not None:
+                print(
+                    f"BackgroundNoise. background_regex: {self.background_regex}. sample name: {self.sample_names[back_sample_id]}"
+                )
+            if self.esc50_df_path is not None:
+                print(f"BackgroundNoise. esc50_df_path: {self.esc50_df_path}")
         back_sample = self._pad_or_crop_sample(back_sample, back_sample_id, y.shape[0])
         if self.normalize_chunks:
             back_sample = librosa.util.normalize(back_sample)

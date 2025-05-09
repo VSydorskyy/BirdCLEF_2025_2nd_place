@@ -134,3 +134,47 @@ def get_audio_metadata(file_path: str):
             "bit_depth": None,
             "encoding": None,
         }
+
+
+# def get_weighted_probability_vector(start_second, pseudo_probs, chunk_duration=5):
+#     """
+#     Compute weighted probability vector over a 5-second window starting at start_second.
+
+#     Parameters:
+#     - start_second (float): The starting second within the audio.
+#     - pseudo_probs (np.array): np.array where each row is a probability vector for a 5-second chunk.
+#     - chunk_duration (float): Duration each row covers (default 5 seconds).
+
+#     Returns:
+#     - weighted_vector (np.ndarray): Weighted probability vector.
+#     """
+#     total_duration = len(pseudo_probs) * chunk_duration
+#     if start_second < 0 or start_second >= total_duration:
+#         raise ValueError(f"start_second must be within 0 and {total_duration} seconds. Started with {start_second}.")
+
+#     # Figure out which rows (chunks) overlap with the 5-second window
+#     window_start = start_second
+#     window_end = start_second + chunk_duration
+
+#     weighted_sum = np.zeros(pseudo_probs.shape[1])
+#     remaining_window = chunk_duration
+
+#     while round(remaining_window, 6) > 0 and window_start < total_duration:
+#         current_chunk = int(window_start // chunk_duration)
+#         chunk_start = current_chunk * chunk_duration
+#         chunk_end = chunk_start + chunk_duration
+
+#         # Compute overlap between window and this chunk
+#         overlap_start = max(window_start, chunk_start)
+#         overlap_end = min(window_end, chunk_end)
+#         overlap_duration = overlap_end - overlap_start
+
+#         assert overlap_duration >= 0, f"Overlap duration should be non-negative. Got {overlap_duration}."
+
+#         weight = overlap_duration / chunk_duration
+#         weighted_sum += pseudo_probs[current_chunk] * weight
+
+#         window_start = chunk_end  # move to next chunk
+#         remaining_window -= overlap_duration
+
+#     return weighted_sum

@@ -1,4 +1,5 @@
 import json
+import math
 from typing import Any, Mapping
 
 import numpy as np
@@ -100,3 +101,10 @@ def get_device():
     else:
         device = "cpu"
     return device
+
+
+def create_oversampled_df_for_class(original_df, class_name, n_add_samples):
+    class_sub_df = original_df[original_df["primary_label"] == class_name].reset_index(drop=True)
+    repeat_times = math.ceil(n_add_samples / class_sub_df.shape[0])
+    oversampled_df = pd.concat([class_sub_df] * repeat_times).sample(frac=1).reset_index(drop=True)
+    return oversampled_df.iloc[:n_add_samples]

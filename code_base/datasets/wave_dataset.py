@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from ..augmentations.transforms import BackgroundNoise
 from ..utils import load_json, load_pp_audio, parallel_librosa_load
-from ..utils.main_utils import sample_uniformly_np_index
+from ..utils.main_utils import create_oversampled_df_for_class, sample_uniformly_np_index
 
 tqdm.pandas()
 
@@ -27,6 +27,52 @@ MAX_RATING = 5.0
 
 def get_curate_id(filename):
     return "/".join(os.path.splitext(filename)[0].split("/")[-2:])
+
+
+def get_weighted_probability_vector(
+    start_second: float, pseudo_probs: np.ndarray, chunk_duration: int = 5, rounding_precision: int = 3
+) -> np.ndarray:
+    """
+    Calculate a weighted probability vector for a given start time within a pseudo-probabilities array.
+
+    Args:
+        start_second (float): The starting second of the audio segment.
+        pseudo_probs (np.ndarray): A 2D array where each row represents probabilities for a chunk.
+        chunk_duration (int, optional): Duration of each chunk in seconds. Defaults to 5.
+        rounding_precision (int, optional): Precision for rounding checks. Defaults to 3.
+
+    Returns:
+        np.ndarray: A weighted probability vector for the given start time.
+
+    Raises:
+        RuntimeError: If the start time exceeds the length of the pseudo-probabilities array.
+    """
+    # Calculate the ID of the first chunk based on the start time
+    first_chunk_id = int(start_second // chunk_duration)
+
+    # Calculate the duration of the first chunk that overlaps with the start time
+    first_chunk_duration = ((first_chunk_id + 1) * chunk_duration) - start_second
+    assert first_chunk_duration <= chunk_duration, "First chunk duration exceeds chunk duration"
+
+    # Calculate the weight of the first chunk
+    first_chunk_weight = first_chunk_duration / chunk_duration
+
+    # If the first chunk is the last one, return its probabilities
+    if (first_chunk_id + 1) == pseudo_probs.shape[0]:
+        assert (
+            round(first_chunk_duration, rounding_precision) == chunk_duration
+        ), "First chunk duration does not match chunk duration"
+        return pseudo_probs[first_chunk_id]
+
+    # If the first chunk ID exceeds the array length, raise an error
+    elif (first_chunk_id + 1) > pseudo_probs.shape[0]:
+        raise RuntimeError("Run out of pseudo_probs length")
+
+    # Otherwise, calculate the weighted sum of probabilities from the first and second chunks
+    else:
+        return pseudo_probs[first_chunk_id] * first_chunk_weight + pseudo_probs[first_chunk_id + 1] * (
+            1 - first_chunk_weight
+        )
 
 
 class WaveDataset(torch.utils.data.Dataset):
@@ -68,6 +114,8 @@ class WaveDataset(torch.utils.data.Dataset):
         empty_soundscape_config=None,
         soundscape_pseudo_df_path=None,
         soundscape_pseudo_config=None,
+        oof_df_path=None,
+        oof_sampling_config=None,
         start_from_zero=False,
         ignore_setting_dataset_value=False,
         dataset_repeat=1,
@@ -78,6 +126,9 @@ class WaveDataset(torch.utils.data.Dataset):
         check_all_files_exist=True,
         curation_json_path=None,
         label_smoothing=None,
+        use_label_smoothing_fix=False,
+        label_smoothing_treshold=0.5,
+        oversample_classes_dict=None,
     ):
         super().__init__()
         assert unlabeled_params["mode"] in ["return", "mixup"]
@@ -119,7 +170,17 @@ class WaveDataset(torch.utils.data.Dataset):
                 [pd.read_csv(el)[cols_to_take] for el in add_df_paths],
                 axis=0,
             ).reset_index(drop=True)
+            add_merged_df[target_col] = add_merged_df[target_col].astype(str)
             df = pd.concat([df, add_merged_df], axis=0).reset_index(drop=True)
+        if oversample_classes_dict is not None:
+            add_oversampled_df = pd.concat(
+                [
+                    create_oversampled_df_for_class(original_df=df, class_name=class_name, n_add_samples=n_add_samples)
+                    for class_name, n_add_samples in oversample_classes_dict.items()
+                ],
+                axis=0,
+            ).reset_index(drop=True)
+            df = pd.concat([df, add_oversampled_df], axis=0).reset_index(drop=True)
         if soundscape_pseudo_df_path is not None:
             if not isinstance(soundscape_pseudo_df_path, list):
                 soundscape_pseudo_df_path = [soundscape_pseudo_df_path]
@@ -231,6 +292,8 @@ class WaveDataset(torch.utils.data.Dataset):
         self.right_bound_unlabeled = right_bound_unlabeled
 
         self.label_smoothing = label_smoothing
+        self.use_label_smoothing_fix = use_label_smoothing_fix
+        self.label_smoothing_treshold = label_smoothing_treshold
 
         if unlabeled_glob is not None:
             self.unlabeled_files = glob(unlabeled_glob)
@@ -284,14 +347,16 @@ class WaveDataset(torch.utils.data.Dataset):
             self.soundscape_df = []
             used_sample_ids = set()
             n_total_sample_ids = None
-            for ss_path, ss_df in zip(soundscape_pseudo_df_path, soundscape_dfs):
+            for idx, (ss_path, ss_df) in enumerate(zip(soundscape_pseudo_df_path, soundscape_dfs)):
                 assert len(ss_df.columns) >= len(self.label_str2int)
                 ss_df["sample_id"] = ss_df["row_id"].apply(lambda x: "_".join(x.split("_")[:-1]))
                 if n_total_sample_ids is None:
                     n_total_sample_ids = len(ss_df["sample_id"].unique())
-                ss_df = ss_df[
-                    ss_df["primary_label_prob"] > self.soundscape_pseudo_config["primary_label_min_prob"]
-                ].reset_index(drop=True)
+                if isinstance(self.soundscape_pseudo_config["primary_label_min_prob"], list):
+                    primary_label_min_prob = self.soundscape_pseudo_config["primary_label_min_prob"][idx]
+                else:
+                    primary_label_min_prob = self.soundscape_pseudo_config["primary_label_min_prob"]
+                ss_df = ss_df[ss_df["primary_label_prob"] > primary_label_min_prob].reset_index(drop=True)
                 ss_df = ss_df[~ss_df["sample_id"].isin(used_sample_ids)].reset_index(drop=True)
                 print(f"Selected {len(set(ss_df['sample_id']))} samples from {n_total_sample_ids} from {ss_path}")
                 used_sample_ids.update(set(ss_df["sample_id"].tolist()))
@@ -330,6 +395,31 @@ class WaveDataset(torch.utils.data.Dataset):
             ), "Some files are not in curation json"
         else:
             self.curation_json = None
+
+        self.oof_sampling_config = oof_sampling_config
+        if oof_df_path is not None:
+            assert self.timewise_col is None, "OOF sampling is not supported with timewise_col"
+            assert segment_len == 5.0, "OOF sampling is not supported with segment_len != 5.0"
+
+            oof_df = pd.read_csv(oof_df_path)
+            oof_df["sample_id"] = oof_df["row_id"].apply(lambda x: "_".join(x.split("_")[:-1]))
+            oof_df["end_second"] = oof_df["row_id"].apply(lambda x: int(x.split("_")[-1]))
+            label_int2str = {v: k for k, v in self.label_str2int.items()}
+            arranged_birds = [label_int2str[idx] for idx in range(len(label_int2str))]
+
+            oof_probs = oof_df[arranged_birds].values
+            oof_probs[oof_probs < self.oof_sampling_config["trim_min_prob"]] = 0
+            oof_df[arranged_birds] = oof_probs
+
+            self.sample2oofprob = (
+                oof_df.groupby("sample_id")
+                .apply(lambda sample_id_df: sample_id_df.sort_values("end_second")[arranged_birds].values)
+                .to_dict()
+            )
+
+            self.df["sample_id"] = self.df[self.name_col].apply(lambda x: os.path.splitext(os.path.basename(x))[0])
+        else:
+            self.sample2oofprob = None
 
     def turn_off_all_augs(self):
         print("All augs Turned Off")
@@ -383,12 +473,14 @@ class WaveDataset(torch.utils.data.Dataset):
                 np.array(input[end - self.segment_len : end]) if self.use_h5py else input[end - self.segment_len : end]
             )
         input_len = input.shape[0]
+        return_start = 0
         if trim_indices is not None:
             input_len = trim_indices[1] - trim_indices[0]
+            return_start = trim_indices[0]
         if input_len < self.segment_len:
             input = input[trim_indices[0] : trim_indices[1]] if trim_indices is not None else np.array(input)
             pad_len = self.segment_len - input_len
-            return np.pad(input if self.use_h5py else input, ((pad_len, 0)))
+            return np.pad(input if self.use_h5py else input, ((pad_len, 0))), return_start
         elif input_len > self.segment_len:
             if self.start_from_zero:
                 start = 0
@@ -403,15 +495,16 @@ class WaveDataset(torch.utils.data.Dataset):
                     else:
                         right_bound = input.shape[0] - self.segment_len
                 start = np.random.randint(left_bound, right_bound)
+                return_start = return_start + start
             return (
                 np.array(input[start : start + self.segment_len])
                 if self.use_h5py
                 else input[start : start + self.segment_len]
-            )
+            ), return_start
         else:
             if trim_indices is not None:
                 input = input[trim_indices[0] : trim_indices[1]]
-            return np.array(input) if self.use_h5py else input
+            return np.array(input) if self.use_h5py else input, return_start
 
     def _prepare_target(self, main_tgt, sec_tgt, all_labels=None):
         if all_labels is not None:
@@ -473,7 +566,7 @@ class WaveDataset(torch.utils.data.Dataset):
                             trim_indices = self.curation_json[get_curate_id(row[self.name_col])]
                             if trim_indices[0] == -1:
                                 trim_indices = None
-                        wave = self._prepare_sample_piece(
+                        wave, start_point = self._prepare_sample_piece(
                             f["au"],
                             end_second=end_second,
                             max_sampling_second=self.right_bound_main,
@@ -496,7 +589,7 @@ class WaveDataset(torch.utils.data.Dataset):
                 if self.pos_dtype is not None:
                     wave = wave.astype(np.float32)
 
-                wave = self._prepare_sample_piece(wave, max_sampling_second=self.right_bound_main)
+                wave, start_point = self._prepare_sample_piece(wave, max_sampling_second=self.right_bound_main)
 
             main_tgt = row[self.target_col]
             if self.sec_target_col is not None:
@@ -509,7 +602,24 @@ class WaveDataset(torch.utils.data.Dataset):
             elif is_pseudo_sample:
                 target = torch.from_numpy(row[self.indices_for_soundscapes].values.astype(np.float32)).float()
             else:
-                target = self._prepare_target(main_tgt, sec_tgt)
+                if (
+                    self.sample2oofprob is not None
+                    and not is_pseudo_sample
+                    and row["sample_id"] in self.sample2oofprob
+                    and np.random.binomial(1, self.oof_sampling_config["sampling_prob"])
+                ):
+                    start_second = start_point / self.sample_rate
+                    try:
+                        target = get_weighted_probability_vector(
+                            start_second,
+                            self.sample2oofprob[row["sample_id"]],
+                        )
+                    except Exception as e:
+                        print("Failed on sample", row["sample_id"])
+                        raise e
+                    target = torch.from_numpy(target.astype(np.float32)).float()
+                else:
+                    target = self._prepare_target(main_tgt, sec_tgt)
             if self.rating_col is not None:
                 rating = row[self.rating_col] / MAX_RATING
                 assert 0.0 <= rating <= 1.0
@@ -574,8 +684,10 @@ class WaveDataset(torch.utils.data.Dataset):
                         target = mixup_target + target
                     elif target_aggregation == "max":
                         target = torch.max(mixup_target, target)
+                    elif target_aggregation == "full_probability":
+                        target = 1 - (1 - mixup_target) * (1 - target)
                     else:
-                        raise ValueError("target_aggregation should be `sum` or `max`")
+                        raise ValueError("target_aggregation should be `sum`, `max`, or `full_probability`")
             else:
                 mix_weight = np.random.beta(self.mixup_params["alpha"], self.mixup_params["alpha"])
                 if self.mixup_params.get("weight_trim", False):
@@ -641,7 +753,7 @@ class WaveDataset(torch.utils.data.Dataset):
             if self.unlabeled_params["mode"] == "return":
                 random_file = np.random.choice(self.unlabeled_files)
                 with h5py.File(random_file, "r", swmr=True) as f:
-                    unlabeled_wave = self._prepare_sample_piece(
+                    unlabeled_wave, start_point = self._prepare_sample_piece(
                         f["au"],
                         end_second=None,
                         max_sampling_second=self.right_bound_unlabeled,
@@ -654,7 +766,7 @@ class WaveDataset(torch.utils.data.Dataset):
                 if np.random.binomial(1, self.unlabeled_params["prob"]):
                     random_file = np.random.choice(self.unlabeled_files)
                     with h5py.File(random_file, "r", swmr=True) as f:
-                        unlabeled_wave = self._prepare_sample_piece(
+                        unlabeled_wave, start_point = self._prepare_sample_piece(
                             f["au"],
                             end_second=None,
                             max_sampling_second=self.right_bound_unlabeled,
@@ -671,6 +783,11 @@ class WaveDataset(torch.utils.data.Dataset):
                 else:
                     mask = torch.ones_like(target)
                 return wave, target, mask
+
+        if self.use_label_smoothing_fix:
+            target[target < self.label_smoothing_treshold] = (
+                self.label_smoothing * (target >= self.label_smoothing_treshold).sum() / target.shape[-1]
+            )
 
         return wave, target
 
