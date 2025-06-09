@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from ..augmentations.transforms import BackgroundNoise
 from ..utils import load_json, load_pp_audio, parallel_librosa_load
-from ..utils.main_utils import create_oversampled_df_for_class, sample_uniformly_np_index
+from ..utils.main_utils import create_oversampled_df_for_class, sample_uniformly_np_index, standardize_audio_filters
 
 tqdm.pandas()
 
@@ -25,8 +25,11 @@ EPS = 1e-5
 MAX_RATING = 5.0
 
 
-def get_curate_id(filename):
-    return "/".join(os.path.splitext(filename)[0].split("/")[-2:])
+def get_curate_id(filename, with_extension=False):
+    if with_extension:
+        return "/".join(filename.split("/")[-2:])
+    else:
+        return "/".join(os.path.splitext(filename)[0].split("/")[-2:])
 
 
 def get_weighted_probability_vector(
@@ -87,6 +90,7 @@ class WaveDataset(torch.utils.data.Dataset):
         target_col="primary_label",
         sec_target_col="secondary_labels",
         name_col="filename",
+        duration_col="duration_s",
         timewise_col=None,
         timewise_slice_pad=2.5,
         rating_col=None,
@@ -114,6 +118,8 @@ class WaveDataset(torch.utils.data.Dataset):
         empty_soundscape_config=None,
         soundscape_pseudo_df_path=None,
         soundscape_pseudo_config=None,
+        soundscape_total_n_samples=9726,
+        soundscape_fold_idx=None,
         oof_df_path=None,
         oof_sampling_config=None,
         start_from_zero=False,
@@ -125,14 +131,19 @@ class WaveDataset(torch.utils.data.Dataset):
         right_bound_unlabeled=None,
         check_all_files_exist=True,
         curation_json_path=None,
+        curation_chunks=None,
+        curation_chunks_json_path=None,
         label_smoothing=None,
         use_label_smoothing_fix=False,
         label_smoothing_treshold=0.5,
         oversample_classes_dict=None,
     ):
         super().__init__()
+
         assert unlabeled_params["mode"] in ["return", "mixup"]
         assert timewise_slice_pad < segment_len
+        if curation_chunks_json_path is not None and curation_chunks is not None:
+            raise ValueError("curation_chunks_json_path and curation_chunks can not be used together")
         if timewise_col is not None and not use_h5py:
             raise ValueError("timewise_col can be used only with h5py")
         if use_h5py and precompute:
@@ -236,6 +247,7 @@ class WaveDataset(torch.utils.data.Dataset):
                 lambda x: x.replace(replace_pathes[0], replace_pathes[1])
             )
 
+        self.duration_col = duration_col
         self.target_col = target_col
         self.sec_target_col = sec_target_col
         self.timewise_col = timewise_col
@@ -247,6 +259,9 @@ class WaveDataset(torch.utils.data.Dataset):
         self.precompute = precompute
         self.use_h5py = use_h5py
         self.load_normalize = load_normalize
+
+        self.df["original_name_col"] = self.df[name_col].copy()
+
         if self.use_h5py:
             self.df[self.name_col] = self.df[self.name_col].apply(lambda x: splitext(x)[0] + ".hdf5")
 
@@ -346,19 +361,24 @@ class WaveDataset(torch.utils.data.Dataset):
             self.indices_for_soundscapes = [label_int2str[i] for i in range(len(self.label_str2int))]
             self.soundscape_df = []
             used_sample_ids = set()
-            n_total_sample_ids = None
             for idx, (ss_path, ss_df) in enumerate(zip(soundscape_pseudo_df_path, soundscape_dfs)):
                 assert len(ss_df.columns) >= len(self.label_str2int)
                 ss_df["sample_id"] = ss_df["row_id"].apply(lambda x: "_".join(x.split("_")[:-1]))
-                if n_total_sample_ids is None:
-                    n_total_sample_ids = len(ss_df["sample_id"].unique())
+                ss_df["soundscape_path"] = ss_path
                 if isinstance(self.soundscape_pseudo_config["primary_label_min_prob"], list):
                     primary_label_min_prob = self.soundscape_pseudo_config["primary_label_min_prob"][idx]
                 else:
                     primary_label_min_prob = self.soundscape_pseudo_config["primary_label_min_prob"]
                 ss_df = ss_df[ss_df["primary_label_prob"] > primary_label_min_prob].reset_index(drop=True)
-                ss_df = ss_df[~ss_df["sample_id"].isin(used_sample_ids)].reset_index(drop=True)
-                print(f"Selected {len(set(ss_df['sample_id']))} samples from {n_total_sample_ids} from {ss_path}")
+
+                if self.soundscape_pseudo_config.get("use_oof", False):
+                    ss_df = ss_df[ss_df["fold_id"].astype(int) != soundscape_fold_idx].reset_index(drop=True)
+                else:
+                    ss_df = ss_df[~ss_df["sample_id"].isin(used_sample_ids)].reset_index(drop=True)
+                print(
+                    f"Selected {len(set(ss_df['sample_id']))} samples from {soundscape_total_n_samples} from {ss_path}"
+                )
+                print(f"Selected {len(ss_df)} rows")
                 used_sample_ids.update(set(ss_df["sample_id"].tolist()))
                 self.soundscape_df.append(ss_df)
 
@@ -377,6 +397,61 @@ class WaveDataset(torch.utils.data.Dataset):
         else:
             self.soundscape_df = None
 
+        if self.empty_soundscape_config is not None:
+            self.empty_sampler = BackgroundNoise(**self.empty_soundscape_config["sampler_config"])
+
+        if curation_json_path is not None:
+            self.curation_json = load_json(curation_json_path)
+            self.df["temp_col"] = self.df["original_name_col"].apply(get_curate_id)
+            assert set(self.df["temp_col"]) <= set(self.curation_json.keys()), "Some files are not in curation json"
+            ignore_ids = [key for key, value in self.curation_json.items() if (value[0] == value[1] == 0)]
+            print("Curation json: Ignoring ids", ignore_ids)
+            self.df = self.df[~self.df["temp_col"].isin(ignore_ids)].reset_index(drop=True)
+            self.df = self.df.drop(columns=["temp_col"])
+        else:
+            self.curation_json = None
+
+        self.curation_chunks = curation_chunks
+        if self.curation_chunks is not None:
+            self.curation_chunks = standardize_audio_filters(self.curation_chunks)
+            self.df["temp_col"] = self.df["original_name_col"].apply(get_curate_id)
+            tempid2length = self.df.set_index("temp_col")[self.duration_col].to_dict()
+            # drop some samples
+            ignore_ids = [key for key, value in self.curation_chunks.items() if value[0] == "i"]
+            print("Curation chunks: Ignoring ids", ignore_ids)
+            self.df = self.df[~self.df["temp_col"].isin(ignore_ids)].reset_index(drop=True)
+            self.df = self.df.drop(columns=["temp_col"])
+            self.curation_chunks = {key: value for key, value in self.curation_chunks.items() if key in tempid2length}
+            for key in self.curation_chunks.keys():
+                self.curation_chunks[key] = np.array(
+                    [
+                        (
+                            int(el[0] * self.sample_rate),
+                            int(tempid2length[key] * self.sample_rate if el[1] is None else el[1] * self.sample_rate),
+                        )
+                        for el in self.curation_chunks[key][1:]
+                    ]
+                )
+
+        if curation_chunks_json_path is not None:
+            self.curation_chunks = load_json(curation_chunks_json_path)
+            self.df["temp_col"] = self.df["original_name_col"].apply(get_curate_id)
+            # drop some samples
+            ignore_ids = [key for key, value in self.curation_chunks.items() if len(value) == 0]
+            print("Curation chunks: Ignoring ids", ignore_ids)
+            self.df = self.df[~self.df["temp_col"].isin(ignore_ids)].reset_index(drop=True)
+            self.df = self.df.drop(columns=["temp_col"])
+            for key in self.curation_chunks.keys():
+                self.curation_chunks[key] = np.array(
+                    [
+                        (
+                            (int(el[0] * self.sample_rate) if el[0] != -1 else -1),
+                            (int(el[1] * self.sample_rate) if el[1] != -1 else -1),
+                        )
+                        for el in self.curation_chunks[key]
+                    ]
+                )
+
         if use_sampler:
             self.targets = (
                 self.df[sampler_col].tolist() if sampler_col is not None else self.df[self.target_col].tolist()
@@ -384,17 +459,6 @@ class WaveDataset(torch.utils.data.Dataset):
         if mixup_params.get("weights_path", None):
             self.weights = load_json(mixup_params["weights_path"])
             self.weights = torch.FloatTensor([self.weights[el] for el in self.targets])
-
-        if self.empty_soundscape_config is not None:
-            self.empty_sampler = BackgroundNoise(**self.empty_soundscape_config["sampler_config"])
-
-        if curation_json_path is not None:
-            self.curation_json = load_json(curation_json_path)
-            assert set(self.df[self.name_col].apply(get_curate_id)) <= set(
-                self.curation_json.keys()
-            ), "Some files are not in curation json"
-        else:
-            self.curation_json = None
 
         self.oof_sampling_config = oof_sampling_config
         if oof_df_path is not None:
@@ -433,6 +497,8 @@ class WaveDataset(torch.utils.data.Dataset):
     def _prepare_sample_piece(
         self, input, end_second=None, sample_slices=None, max_sampling_second=None, trim_indices=None
     ):
+        if end_second is not None and trim_indices is not None:
+            raise ValueError("end_second and trim_indices can not be used together")
         if sample_slices is not None:
             if input.shape[0] < self.segment_len:
                 pad_len = self.segment_len - input.shape[0]
@@ -479,7 +545,7 @@ class WaveDataset(torch.utils.data.Dataset):
             return_start = trim_indices[0]
         if input_len < self.segment_len:
             input = input[trim_indices[0] : trim_indices[1]] if trim_indices is not None else np.array(input)
-            pad_len = self.segment_len - input_len
+            pad_len = self.segment_len - len(input)
             return np.pad(input if self.use_h5py else input, ((pad_len, 0))), return_start
         elif input_len > self.segment_len:
             if self.start_from_zero:
@@ -495,15 +561,25 @@ class WaveDataset(torch.utils.data.Dataset):
                     else:
                         right_bound = input.shape[0] - self.segment_len
                 start = np.random.randint(left_bound, right_bound)
-                return_start = return_start + start
-            return (
+                return_start = start
+            input = (
                 np.array(input[start : start + self.segment_len])
                 if self.use_h5py
                 else input[start : start + self.segment_len]
-            ), return_start
+            )
+            # TODO: Fast and dirty fix for curation length unaligned
+            if trim_indices is not None:
+                pad_len = self.segment_len - len(input)
+                if pad_len > 0:
+                    input = np.pad(input if self.use_h5py else input, ((pad_len, 0)))
+            return input, return_start
         else:
             if trim_indices is not None:
                 input = input[trim_indices[0] : trim_indices[1]]
+                # TODO: Fast and dirty fix for curation length unaligned
+                pad_len = self.segment_len - len(input)
+                if pad_len > 0:
+                    input = np.pad(input if self.use_h5py else input, ((pad_len, 0)))
             return np.array(input) if self.use_h5py else input, return_start
 
     def _prepare_target(self, main_tgt, sec_tgt, all_labels=None):
@@ -562,10 +638,31 @@ class WaveDataset(torch.utils.data.Dataset):
                     else:
                         sample_slices = None
                         trim_indices = None
-                        if self.curation_json is not None:
-                            trim_indices = self.curation_json[get_curate_id(row[self.name_col])]
-                            if trim_indices[0] == -1:
+                        if not is_pseudo_sample:
+                            if self.curation_chunks is not None:
+                                curate_id = get_curate_id(row["original_name_col"])
+                                if curate_id in self.curation_chunks:
+                                    all_trim_indices = self.curation_chunks[curate_id]
+                                    if all_trim_indices[0][0] == -1:
+                                        trim_indices = None
+                                    else:
+                                        lengths = all_trim_indices[:, 1] - all_trim_indices[:, 0]
+                                        if lengths.sum() == 0:
+                                            print("All trim indices are empty")
+                                            trim_indices = None
+                                        else:
+                                            chosen_index = np.random.choice(
+                                                range(all_trim_indices.shape[0]), p=lengths / lengths.sum()
+                                            )
+                                        trim_indices = (
+                                            all_trim_indices[chosen_index][0],
+                                            all_trim_indices[chosen_index][1],
+                                        )
+                            elif self.curation_json is not None:
+                                trim_indices = self.curation_json[get_curate_id(row[self.name_col])]
+                            if trim_indices is not None and trim_indices[0] == -1:
                                 trim_indices = None
+                            # print("Trim Indices", trim_indices[0] / self.sample_rate, trim_indices[1] / self.sample_rate)
                         wave, start_point = self._prepare_sample_piece(
                             f["au"],
                             end_second=end_second,
@@ -591,6 +688,8 @@ class WaveDataset(torch.utils.data.Dataset):
 
                 wave, start_point = self._prepare_sample_piece(wave, max_sampling_second=self.right_bound_main)
 
+            # print("Start Point in seconds:", start_point / self.sample_rate)
+
             main_tgt = row[self.target_col]
             if self.sec_target_col is not None:
                 sec_tgt = row[self.sec_target_col]
@@ -602,6 +701,7 @@ class WaveDataset(torch.utils.data.Dataset):
             elif is_pseudo_sample:
                 target = torch.from_numpy(row[self.indices_for_soundscapes].values.astype(np.float32)).float()
             else:
+                target = None
                 if (
                     self.sample2oofprob is not None
                     and not is_pseudo_sample
@@ -614,12 +714,25 @@ class WaveDataset(torch.utils.data.Dataset):
                             start_second,
                             self.sample2oofprob[row["sample_id"]],
                         )
+                        current_bird_names = [el for el in [main_tgt] + sec_tgt if el != ""]
+                        selected_probs = [target[self.label_str2int[el]] for el in current_bird_names]
+                        if max(selected_probs) < self.oof_sampling_config["acceptance_prob"]:
+                            # If model predicts other species with high probability - than we should not rely on predictions
+                            if (
+                                self.oof_sampling_config.get("use_zero_samples", False)
+                                and target.max() < self.oof_sampling_config["zero_sample_prob"]
+                            ):
+                                target = np.zeros(len(self.label_str2int))
+                            else:
+                                target = None
                     except Exception as e:
                         print("Failed on sample", row["sample_id"])
                         raise e
-                    target = torch.from_numpy(target.astype(np.float32)).float()
-                else:
+
+                if target is None:
                     target = self._prepare_target(main_tgt, sec_tgt)
+                else:
+                    target = torch.from_numpy(target.astype(np.float32)).float()
             if self.rating_col is not None:
                 rating = row[self.rating_col] / MAX_RATING
                 assert 0.0 <= rating <= 1.0
@@ -810,6 +923,7 @@ class WaveAllFileDataset(WaveDataset):
         sample_rate=32_000,
         segment_len=5.0,
         step=None,
+        do_not_exceed_duration=False,
         lookback=None,
         lookahead=None,
         precompute=False,
@@ -874,6 +988,7 @@ class WaveAllFileDataset(WaveDataset):
             replace_pathes=replace_pathes,
             ignore_setting_dataset_value=ignore_setting_dataset_value,
             check_all_files_exist=check_all_files_exist,
+            duration_col=duration_col,
         )
         self.validate_sr = validate_sr
         self.load_normalize = load_normalize
@@ -894,7 +1009,6 @@ class WaveAllFileDataset(WaveDataset):
             }
             self.precompute = True
 
-        self.duration_col = duration_col
         self.verbose = verbose
         self.test_mode = test_mode
         self.soundscape_mode = soundscape_mode
@@ -907,10 +1021,14 @@ class WaveAllFileDataset(WaveDataset):
             self.df[self.sample_id] = self.df[self.sample_id].astype("category").cat.codes
 
         self.sampleidx_2_dfidx = {}
-        if lookahead is not None and lookback is not None:
+        if lookahead is not None or lookback is not None or step is not None:
             print("Dataset in hard_slicing mode")
             if step is None:
                 step = segment_len
+            if lookahead is None:
+                lookahead = 0
+            if lookback is None:
+                lookback = 0
             self.hard_slicing = True
             itter = 0
             if soundscape_mode:
@@ -920,11 +1038,13 @@ class WaveAllFileDataset(WaveDataset):
             for dfidx, dur in samples_generator:
                 real_start = -lookback
                 while real_start + lookback < dur + eps:
+                    if do_not_exceed_duration and round(real_start + lookback + segment_len, 4) > round(dur, 4):
+                        break
                     self.sampleidx_2_dfidx[itter] = {
                         "dfidx": itter if soundscape_mode else dfidx,
                         "start": int(real_start * self.sample_rate),
                         "end": int((real_start + lookback + segment_len + lookahead) * self.sample_rate),
-                        "end_s": min(int(real_start + lookback + segment_len), dur),
+                        "end_s": min(real_start + lookback + segment_len, dur),
                     }
                     real_start += step
                     itter += 1

@@ -18,7 +18,10 @@ class ONNXEnsemble(torch.nn.Module):
         avarage_type="mean",
         weights=None,
         final_activation=None,
+        extract_spec_ones=False,
     ):
+        if avarage_type not in ["mean", "gaus", "identity"]:
+            raise ValueError("avarage_type must be mean, gaus or identity")
         if weights is not None and avarage_type != "mean":
             raise ValueError("avarage_type must be mean if weights is not None")
         if final_activation is not None and final_activation not in [
@@ -35,26 +38,44 @@ class ONNXEnsemble(torch.nn.Module):
         else:
             self.weights = None
         self.final_activation = final_activation
+        self.extract_spec_ones = extract_spec_ones
 
     def forward(self, sample):
         if self.weights is None:
-            pred = torch.stack(
-                [one_model(sample) for one_model in self.models],
-                dim=0,
-            )
+            if self.avarage_type == "identity":
+                dim = -1
+            else:
+                dim = 0
+
+            if self.extract_spec_ones:
+                spec = self.models[0].extract_spec(sample)
+                pred = torch.stack(
+                    [one_model(input=None, spec=spec) for one_model in self.models],
+                    dim=dim,
+                )
+            else:
+                pred = torch.stack(
+                    [one_model(sample) for one_model in self.models],
+                    dim=dim,
+                )
         else:
-            pred = torch.stack(
-                [one_model(sample) * weight for one_model, weight in zip(self.models, self.weights)],
-                dim=0,
-            )
+            if self.extract_spec_ones:
+                spec = self.models[0].extract_spec(sample)
+                pred = torch.stack(
+                    [one_model(input=None, spec=spec) * weight for one_model, weight in zip(self.models, self.weights)],
+                    dim=0,
+                )
+            else:
+                pred = torch.stack(
+                    [one_model(sample) * weight for one_model, weight in zip(self.models, self.weights)],
+                    dim=0,
+                )
         if self.weights is not None:
             pred = pred.sum(dim=0) / self.weights.sum()
         elif self.avarage_type == "mean":
             pred = pred.mean(dim=0)
         elif self.avarage_type == "gaus":
             pred = (pred**2).mean(axis=0) ** 0.5
-        else:
-            raise ValueError("avarage_type not implemented")
         if self.final_activation is not None:
             if self.final_activation == "sigmoid":
                 pred = torch.sigmoid(pred)

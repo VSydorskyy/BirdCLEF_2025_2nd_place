@@ -4,6 +4,7 @@ from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
+import requests
 import torch
 import yaml
 from joblib import Parallel
@@ -108,3 +109,64 @@ def create_oversampled_df_for_class(original_df, class_name, n_add_samples):
     repeat_times = math.ceil(n_add_samples / class_sub_df.shape[0])
     oversampled_df = pd.concat([class_sub_df] * repeat_times).sample(frac=1).reset_index(drop=True)
     return oversampled_df.iloc[:n_add_samples]
+
+
+def standardize_audio_filters(raw_audio_filters):
+    """finalize a dict of audio dilters by converting audio hits into audio sections (start, end),
+    merging them when applicable (if the distance to the previous hit <= 5s).
+    section for a hit is defined a (hit - BAND, hit + BAND)
+    The list sections is prefixed with the type of curation:
+        - 'm': the bird is vocalizing in every 5s segment of every section
+        - 'a': the bird is not guaranted to vocalize in every 5s segment of every section
+        - 'i': the bird is not vocalizing; ignore the audio
+    """
+    BAND = 4
+
+    audio_filters = dict()
+    for id_, raw_sections in raw_audio_filters.items():
+        prior_hit = -100
+        if raw_sections[0] in ["m", "i"]:
+            curation = raw_sections[0]
+            start = 1
+        else:
+            curation = "a"
+            start = 0
+        sections = [curation]
+        for sec in raw_sections[start:]:
+            if isinstance(sec, tuple):
+                sections.append(sec)
+                if sec[1] is not None:
+                    prior_hit = sec[1] - 4
+            else:
+                if prior_hit + 5 >= sec:  # merge with previous section
+                    sections[-1] = (sections[-1][0], sec + BAND)
+                else:
+                    start = max(sec - BAND, 0)
+                    end = 5 if start == 0 else sec + BAND
+                    sections.append((start, end))
+                prior_hit = sec
+
+        audio_filters[id_] = sections
+    return audio_filters
+
+
+def download_audio_file(url: str, save_path: str, verbose: bool = True):
+    """
+    Downloads an audio file from the provided URL and saves it to the specified path.
+
+    Args:
+        url (str): Direct download link to the audio file.
+        save_path (str): Full path including filename where the audio should be saved.
+    """
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()  # Raise error for bad status codes
+        with open(save_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        if verbose:
+            print(f"Audio file downloaded successfully to {save_path}")
+    except Exception as e:
+        if verbose:
+            print(f"Error downloading audio file: {e}")

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BASE_DIR="/gpfs/space/projects/BetterMedicine/volodymyr1/exps/bird_clef_2025/kaggle_datasets/bird_clef_2025_code"
+BASE_DIR="data/bird_clef_2025_code"
 FOLDER_NAME="main_folder"
 ZIP_NAME="$FOLDER_NAME.zip"
 TARGET="$BASE_DIR/$FOLDER_NAME"

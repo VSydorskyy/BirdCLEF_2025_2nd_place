@@ -368,7 +368,7 @@ class WaveCNNAttenClasifier(nn.Module):
                 else:
                     return spec_init(**mel_spec_paramms, onnx_export=exportable)
 
-    def forward(self, input, return_spec_feature=False, return_cnn_emb=False):
+    def extract_spec(self, input):
         if self.central_crop_input is not None:
             overall_pad = input.shape[-1] // 2
             input = input[:, overall_pad // 2 : -(overall_pad // 2)]
@@ -377,6 +377,18 @@ class WaveCNNAttenClasifier(nn.Module):
             spec = torch.cat(spec, dim=1)
         else:
             spec = self.logmelspec_extractor(input)[:, None]
+        return spec
+
+    def forward(self, input, spec=None, return_spec_feature=False, return_cnn_emb=False):
+        if spec is None:
+            if self.central_crop_input is not None:
+                overall_pad = input.shape[-1] // 2
+                input = input[:, overall_pad // 2 : -(overall_pad // 2)]
+            if self._n_specs > 1:
+                spec = [mel_spec_extractor(input)[:, None] for mel_spec_extractor in self.logmelspec_extractor]
+                spec = torch.cat(spec, dim=1)
+            else:
+                spec = self.logmelspec_extractor(input)[:, None]
         if self.spec_augment is not None and self.training:
             spec = self.spec_augment(spec)
         if self.spec_resize is not None:

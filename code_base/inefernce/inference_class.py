@@ -268,6 +268,7 @@ class BirdsInference:
         is_openvino_model=False,
         is_google_model=False,
         google_postprocess=None,
+        check_shapes=True,
     ):
         if not (is_onnx_model or is_openvino_model or is_google_model):
             for nn_model in nn_models:
@@ -295,6 +296,7 @@ class BirdsInference:
         test_dfidx = np.concatenate(test_dfidx)
         test_end = np.concatenate(test_end)
 
-        assert len(test_model_logits.shape) == 2
+        if check_shapes:
+            assert len(test_model_logits.shape) == 2
 
         return test_model_logits, test_dfidx, test_end

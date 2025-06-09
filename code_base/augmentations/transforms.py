@@ -284,43 +284,46 @@ class BackgroundNoise(AudioTransform):
         precompute=True,
         chunks_column=None,
     ):
-        super().__init__(always_apply, p)
-        assert min_level < max_level
-        assert 0 < min_level < 1
-        assert 0 < max_level < 1
-        self.precompute = precompute
-        self.sr = sr
-        self.load_normalize = load_normalize
-        self.esc50_df_path = esc50_df_path
-        self.background_regex = background_regex
-        if background_regex is None and (esc50_root is None or esc50_df_path is None):
-            raise ValueError("background_regex OR esc50_root AND esc50_df_path should be defined")
-        if background_regex is not None:
-            sample_names = glob(background_regex, recursive=glob_recursive)
-            self.chunks = None
-        else:
-            sample_df = pd.read_csv(esc50_df_path)
-            if esc50_cats_to_include is not None:
-                sample_df = sample_df[sample_df.category.isin(esc50_cats_to_include)]
-            if chunks_column is not None:
-                self.chunks = sample_df[chunks_column].apply(eval).tolist()
-            else:
+        try:
+            super().__init__(always_apply, p)
+            assert min_level < max_level
+            assert 0 < min_level < 1
+            assert 0 < max_level < 1
+            self.precompute = precompute
+            self.sr = sr
+            self.load_normalize = load_normalize
+            self.esc50_df_path = esc50_df_path
+            self.background_regex = background_regex
+            if background_regex is None and (esc50_root is None or esc50_df_path is None):
+                raise ValueError("background_regex OR esc50_root AND esc50_df_path should be defined")
+            if background_regex is not None:
+                sample_names = glob(background_regex, recursive=glob_recursive)
                 self.chunks = None
-            sample_names = [pjoin(esc50_root, el) for el in sample_df.filename.tolist()]
-        if debug:
-            sample_names = sample_names[:10]
-        self.sample_names = sample_names
-        if self.precompute:
-            self.samples = parallel_librosa_load(
-                sample_names,
-                return_sr=False,
-                sr=sr,
-                do_normalize=load_normalize,
-            )
-        self.normalize = normalize
-        self.normalize_chunks = normalize_chunks
-        self.min_max_levels = (min_level, max_level)
-        self.verbose = verbose
+            else:
+                sample_df = pd.read_csv(esc50_df_path)
+                if esc50_cats_to_include is not None:
+                    sample_df = sample_df[sample_df.category.isin(esc50_cats_to_include)]
+                if chunks_column is not None:
+                    self.chunks = sample_df[chunks_column].apply(eval).tolist()
+                else:
+                    self.chunks = None
+                sample_names = [pjoin(esc50_root, el) for el in sample_df.filename.tolist()]
+            if debug:
+                sample_names = sample_names[:10]
+            self.sample_names = sample_names
+            if self.precompute:
+                self.samples = parallel_librosa_load(
+                    sample_names,
+                    return_sr=False,
+                    sr=sr,
+                    do_normalize=load_normalize,
+                )
+            self.normalize = normalize
+            self.normalize_chunks = normalize_chunks
+            self.min_max_levels = (min_level, max_level)
+            self.verbose = verbose
+        except:
+            print("BackgroundNoise was not initialized")
 
     def crop_sample(self, sample, crop_shape, sample_id=None):
         # Very dirty implementation. Should be refactored

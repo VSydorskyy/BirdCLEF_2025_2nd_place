@@ -222,6 +222,7 @@ def lightning_training(
 
     train_dataset = train_dataset_class(
         df=train_df,
+        soundscape_fold_idx=fold_id,
         **train_dataset_config,
     )
     is_concat_dataset = False
