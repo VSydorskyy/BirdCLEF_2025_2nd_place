@@ -1,6 +1,5 @@
 from copy import deepcopy
-from importlib.util import spec_from_file_location
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import timm
@@ -8,10 +7,6 @@ import torch
 import torch.nn as nn
 from torchaudio.transforms import MelSpectrogram
 
-try:
-    from speechbrain.lobes.models.ECAPA_TDNN import ECAPA_TDNN
-except:
-    print("`speechbrain` was not imported")
 try:
     from nnAudio.Spectrogram import CQT1992v2
 except:
@@ -32,137 +27,11 @@ from .blocks import (
     AttnBlock,
     ChannelAgnosticAmplitudeToDB,
     Clasifier,
-    GeMFreq,
     NormalizeMelSpec,
     PoolingLayer,
     QuantizableAmplitudeToDB,
     TraceableMelspec,
 )
-
-
-class WaveCNNClasifier(nn.Module):
-    def __init__(
-        self,
-        backbone: str,
-        device: str,
-        mel_spec_paramms: Dict[str, Any],
-        classifiier_config: Dict[str, Any],
-        spec_extractor: str = "Melspec",
-        exportable: bool = False,
-        quantizable: bool = False,
-        pool_type: str = "AdaptiveAvgPool2d",
-        top_db: float = 80.0,
-        pretrained: bool = True,
-        train_time: Optional[float] = None,
-        test_time: Optional[float] = None,
-        inference_mode: bool = False,
-        add_backbone_config: Optional[Dict[str, Any]] = None,
-    ):
-        super().__init__()
-        if train_time is not None and test_time is not None:
-            assert train_time > test_time and train_time % test_time == 0
-            # self.use_train_test_diff_len = True
-            self.trainx = int(train_time // test_time)
-            print(f"Trainx = {self.trainx}")
-        else:
-            self.trainx = None
-
-        self.device = device
-        self.inference_mode = inference_mode
-        self.logmelspec_extractor = self._create_feature_extractor(
-            mel_spec_paramms, exportable, top_db, quantizable, spec_extractor
-        )
-        add_backbone_config = {} if add_backbone_config is None else add_backbone_config
-        self.backbone = timm.create_model(
-            backbone,
-            features_only=True,
-            pretrained=pretrained,
-            in_chans=1,
-            **add_backbone_config,
-        )
-        self.pool = PoolingLayer(pool_type)
-        self.classifier = Clasifier(
-            nn_embed_size=self.backbone.feature_info.channels()[-1],
-            **classifiier_config,
-        )
-        self.sigmoid = nn.Sigmoid()
-        self.to(self.device)
-
-    def _create_feature_extractor(self, mel_spec_paramms, exportable, top_db, quantizable, spec_extractor):
-        if spec_extractor == "Melspec":
-            if exportable:
-                spec_init = TraceableMelspec
-            else:
-                spec_init = MelSpectrogram
-        elif spec_extractor == "CQT":
-            spec_init = CQT1992v2
-        else:
-            raise NotImplementedError(f"{spec_extractor} not implemented")
-        if isinstance(mel_spec_paramms, list):
-            self._n_specs = len(mel_spec_paramms)
-            return nn.ModuleList(
-                [
-                    nn.Sequential(
-                        spec_init(**mel_spec_paramm, quantizable=True) if quantizable else spec_init(**mel_spec_paramm),
-                        QuantizableAmplitudeToDB(top_db=top_db) if quantizable else AmplitudeToDB(top_db=top_db),
-                        NormalizeMelSpec(exportable=exportable),
-                    )
-                    for mel_spec_paramm in mel_spec_paramms
-                ]
-            )
-        else:
-            self._n_specs = 1
-            return nn.Sequential(
-                spec_init(**mel_spec_paramms, quantizable=True) if quantizable else spec_init(**mel_spec_paramms),
-                QuantizableAmplitudeToDB(top_db=top_db) if quantizable else AmplitudeToDB(top_db=top_db),
-                NormalizeMelSpec(exportable=exportable),
-            )
-
-    def forward(self, input, return_spec_feature=False, return_cnn_emb=False):
-        spec = self.logmelspec_extractor(input)
-
-        if self.trainx is not None and self.training:
-            spec_len = spec.shape[2]
-            bs_size = spec.shape[0]
-            slice_len = spec_len % self.trainx
-            if slice_len > 0:
-                spec = spec[:, :, : -int(slice_len)]
-                spec_len = spec.shape[2]
-            spec_piece_len = int(spec_len // self.trainx)
-            spec = torch.cat(
-                [spec[:, :, i * spec_piece_len : (i + 1) * spec_piece_len] for i in range(self.trainx)],
-                axis=0,
-            )
-
-        if return_spec_feature:
-            return spec
-        emb = self.backbone(spec[:, None])[-1]
-
-        if self.trainx is not None and self.training:
-            assert emb.shape[0] % bs_size == 0
-            emb = torch.cat(
-                [
-                    emb[
-                        i * bs_size : (i + 1) * bs_size,
-                        :,
-                    ]
-                    for i in range(emb.shape[0] // bs_size)
-                ],
-                axis=3,
-            )
-
-        emb = self.pool(emb)
-        if return_cnn_emb:
-            return emb
-        logits = self.classifier(emb)
-
-        if self.inference_mode:
-            return self.sigmoid(logits)
-        else:
-            return {
-                "clipwise_logits_long": logits,
-                "clipwise_pred_long": self.sigmoid(logits),
-            }
 
 
 class WaveCNNAttenClasifier(nn.Module):
@@ -427,55 +296,3 @@ class WaveCNNAttenClasifier(nn.Module):
                     "clipwise_logits_long": emb,
                     "clipwise_pred_long": self.sigmoid(emb),
                 }
-
-
-class WaveTDNNClasifier(WaveCNNAttenClasifier):
-    def __init__(
-        self,
-        device: str,
-        mel_spec_paramms: Dict[str, Any],
-        tdnn_paramms: Dict[str, Any],
-        top_db: float = 80.0,
-        exportable: bool = False,
-        central_crop_input: Optional[float] = None,
-        selected_indices: Optional[List[int]] = None,
-        output_type: Optional[str] = None,
-    ):
-        super().__init__(
-            backbone=None,
-            device=device,
-            mel_spec_paramms=mel_spec_paramms,
-            head_config=None,
-            top_db=top_db,
-            pretrained=False,
-            first_conv_stride_overwrite=None,
-            exportable=exportable,
-            central_crop_input=central_crop_input,
-            selected_indices=selected_indices,
-        )
-        if self._n_specs > 1:
-            raise NotImplementedError("TDNN is not implemented for multiple spectrogram")
-        self.tdnn = ECAPA_TDNN(input_size=mel_spec_paramms["n_mels"], **tdnn_paramms)
-        self.output_type = output_type
-        self.sigmoid = nn.Sigmoid()
-        self.to(self.device)
-
-    def forward(self, input, return_spec_feature=False):
-        if self.central_crop_input is not None:
-            overall_pad = input.shape[-1] // 2
-            input = input[:, overall_pad // 2 : -(overall_pad // 2)]
-        spec = self.logmelspec_extractor(input)
-        if return_spec_feature:
-            return spec
-        logits = self.tdnn(spec.transpose(1, 2)).squeeze(-2)
-        probs = self.sigmoid(logits)
-        # Just for compatibility with WaveCNNAttenClasifier
-        if self.output_type is None:
-            return {
-                "clipwise_logits_long": logits,
-                "clipwise_pred_long": probs,
-            }
-        elif self.output_type == "clipwise_logits_long":
-            return logits
-        elif self.output_type == "clipwise_pred_long":
-            return probs
