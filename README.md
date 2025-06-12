@@ -144,7 +144,7 @@ After running the script, you will get metrics in stdout and 2 new folders in th
 
 ### Preparing Pseudo Labels
 
-To understand how pseudo labels were prepared, check out the following notebook: [notebooks/create_pseudo.ipynb]
+To understand how pseudo labels were prepared, check out the following [notebook](notebooks/create_pseudo.ipynb).
 
 ## Cite
 
