@@ -56,7 +56,7 @@ bash rock_that_bird.sh "{GPU_TO_USE}" # By default: bash rock_that_bird.sh "0"
 
 ## Fernando Training Notebook
 
-- ebs_426 training notebook : TODO
+- [ebs_426 training notebook](https://www.kaggle.com/code/vialactea/b5-train-ebs-426)
 
 ### Inference
 
