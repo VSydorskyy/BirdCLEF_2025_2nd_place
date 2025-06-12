@@ -113,7 +113,7 @@ Still, if you want to train pre-trained models, we have [Kaggle Dataset with met
 - `train_and_prev_comps_extendedv1_pruneSL_XCallyearstaxonomy_snipet03042025_hdf5_nosmall10sp_no2025.csv` - smaller pre-train dataset without CSA and some other datasets
 - `cv_split_20_folds_train_and_prev_comps_extendedv1_pruneSL_XCallyearstaxonomy_snipet11052025_csa_newzealand_XCshiro_nosmall10sp.npy` - bigger pre-train dataset with CSA and other datasets
 
-To obtain audio files, you can use Xeno-Canto (`scripts/download_all_xeno_canto.py`), INaturalist (`scripts/download_inaturalist.py`), and [CSA](https://colecciones.humboldt.org.co/sonidos/visor-csa/) APIs for downloading them.
+To obtain audio files, you can use [Xeno-Canto](`scripts/download_all_xeno_canto.py`), [INaturalist](`scripts/download_inaturalist.py`), and [CSA](https://colecciones.humboldt.org.co/sonidos/visor-csa/) APIs for downloading them.
 
 After that, you can pre-train using the same script as in [Training](#training) but with the following configs:
 - `pretrain_ebs_2025.py` - `tf_efficientnetv2_s_in21k` pre-trained on the smaller pre-train dataset
