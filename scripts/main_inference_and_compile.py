@@ -186,6 +186,7 @@ def main():
                     model_class=CONFIG["model_class"],
                     configs=[deepcopy(CONFIG["model_config"])],
                     final_activation=CONFIG.get("final_activation", None),
+                    extract_spec_ones=True,
                 )
                 # for model_id in range(len(exportable_ensem.models)):
                 exportable_ensem.models[0].load_state_dict(model[fold_id].state_dict())
