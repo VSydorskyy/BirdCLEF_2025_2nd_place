@@ -54,6 +54,10 @@ bash rock_that_bird.sh "{GPU_TO_USE}" # By default: bash rock_that_bird.sh "0"
 
 ## Kaggle Notebooks
 
+## Fernando Training Notebook
+
+- ebs_426 training notebook : TODO
+
 ### Inference
 
 - [Kaggle Best Ensemble Inference](https://www.kaggle.com/code/vladimirsydor/bird-clef-2025-ensemble-v2-final-final?scriptVersionId=244942051)
@@ -71,6 +75,7 @@ bash rock_that_bird.sh "{GPU_TO_USE}" # By default: bash rock_that_bird.sh "0"
 - [bird-clef-2025-add-data](https://www.kaggle.com/datasets/vladimirsydor/bird-clef-2025-add-data) - Additional data, with 2025 competition species
 - [bird-clef-2025-all-pretrained-models](https://www.kaggle.com/datasets/vladimirsydor/bird-clef-2025-all-pretrained-models) - Pretrained backbones for fine-tuning
 - [bird-clef-2025-pseudo](https://www.kaggle.com/datasets/vladimirsydor/bird-clef-2025-pseudo) - Pseudo labels for soundscapes
+- [bird-clef-2025-pretrained-metadata](https://www.kaggle.com/datasets/vladimirsydor/bird-clef-2025-pretrained-metadata) - Metadata for pre-trained models
 - [bird-clef-2025-models](https://www.kaggle.com/datasets/vladimirsydor/bird-clef-2025-models) - Trained, converted to OpenVINO, and ready for inference models
 - [bird-clef-2025-code-final](https://www.kaggle.com/datasets/vladimirsydor/bird-clef-2025-code-final) - Codebase on Kaggle platform needed for inference
 - [bird-clef-2025-addones](https://www.kaggle.com/datasets/vladimirsydor/bird-clef-2025-addones) - Additional packages needed for inference
@@ -104,9 +109,9 @@ Available configs:
 
 We have not added all audio files used for pre-training, because it is an enormous amount of data and the overall pre-trained checkpoints are quite universal, so you can reuse them for different species subsets.
 
-Still, if you want to train pre-trained models, we have added metadata:
-- `data/train_and_prev_comps_extendedv1_pruneSL_XCallyearstaxonomy_snipet03042025_hdf5_nosmall10sp_no2025.csv` - smaller pre-train dataset without CSA and some other datasets
-- `data/cv_split_20_folds_train_and_prev_comps_extendedv1_pruneSL_XCallyearstaxonomy_snipet11052025_csa_newzealand_XCshiro_nosmall10sp.npy` - bigger pre-train dataset with CSA and other datasets
+Still, if you want to train pre-trained models, we have [Kaggle Dataset with metadata](https://www.kaggle.com/datasets/vladimirsydor/bird-clef-2025-pretrained-metadata):
+- `train_and_prev_comps_extendedv1_pruneSL_XCallyearstaxonomy_snipet03042025_hdf5_nosmall10sp_no2025.csv` - smaller pre-train dataset without CSA and some other datasets
+- `cv_split_20_folds_train_and_prev_comps_extendedv1_pruneSL_XCallyearstaxonomy_snipet11052025_csa_newzealand_XCshiro_nosmall10sp.npy` - bigger pre-train dataset with CSA and other datasets
 
 To obtain audio files, you can use Xeno-Canto (`scripts/download_all_xeno_canto.py`), INaturalist (`scripts/download_inaturalist.py`), and [CSA](https://colecciones.humboldt.org.co/sonidos/visor-csa/) APIs for downloading them.
 
