@@ -61,7 +61,7 @@ bash rock_that_bird.sh "{GPU_TO_USE}" # By default: bash rock_that_bird.sh "0"
 ### Inference
 
 - [Kaggle Best Ensemble Inference](https://www.kaggle.com/code/vladimirsydor/bird-clef-2025-ensemble-v2-final-final?scriptVersionId=244942051)
-- Kaggle Solo Model Inference
+- [Kaggle Simplest Inference](https://www.kaggle.com/code/vladimirsydor/bird-clef-2025-minimul-inference/notebook?scriptVersionId=245080754)
 
 ## Solution Description
 
